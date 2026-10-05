@@ -10,10 +10,15 @@ set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 add_executable(minicam_tests
+  black_level_test.cc
   cfa_test.cc
+  color_test.cc
   image_test.cc
   pipeline_test.cc
+  raw_file_test.cc
   status_test.cc
+  synthetic_test.cc
+  test_scenes.cc
 )
 target_link_libraries(minicam_tests PRIVATE minicam_core minicam_warnings GTest::gtest_main)
 

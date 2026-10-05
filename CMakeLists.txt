@@ -37,14 +37,30 @@ if(MINICAM_WERROR)
   target_compile_options(minicam_warnings INTERFACE -Werror)
 endif()
 
-# Core library: data types, pipeline and ISP stages. No OpenCV dependency.
+# Core library: data types, pipeline, ISP stages and the synthetic RAW
+# generator. No OpenCV dependency, so it can be tested without image files.
 add_library(minicam_core
   src/core/cfa.cc
+  src/core/color.cc
   src/core/status.cc
+  src/io/raw_file.cc
+  src/io/synthetic.cc
   src/pipeline/pipeline.cc
+  src/stages/black_level.cc
 )
 target_include_directories(minicam_core PUBLIC include)
 target_link_libraries(minicam_core PRIVATE minicam_warnings)
+
+# Image file I/O. OpenCV is used here only to decode and encode files.
+find_package(OpenCV REQUIRED COMPONENTS core imgcodecs)
+add_library(minicam_io src/io/image_io.cc)
+target_link_libraries(minicam_io
+  PUBLIC minicam_core
+  PRIVATE minicam_warnings opencv_core opencv_imgcodecs)
+target_include_directories(minicam_io SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+
+add_executable(make_synthetic_raw tools/make_synthetic_raw.cc)
+target_link_libraries(make_synthetic_raw PRIVATE minicam_io minicam_warnings)
 
 if(MINICAM_BUILD_TESTS)
   enable_testing()
