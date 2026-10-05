@@ -26,8 +26,9 @@ class Pipeline {
   Pipeline& Add(std::unique_ptr<Stage> stage);
 
   // Runs every stage in order. Stops at the first failing stage and returns
-  // its error, prefixed with the frame id and stage name.
-  Status Process(Frame& frame);
+  // its error, prefixed with the frame id and stage name. If `stage_ms` is
+  // given, it receives the wall time of each stage that ran, in milliseconds.
+  Status Process(Frame& frame, std::vector<double>* stage_ms = nullptr);
 
   size_t size() const { return stages_.size(); }
   std::vector<std::string_view> StageNames() const;

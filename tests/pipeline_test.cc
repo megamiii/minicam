@@ -49,6 +49,18 @@ TEST(PipelineTest, RunsStagesInOrder) {
             (std::vector<std::string_view>{"a", "b", "c"}));
 }
 
+TEST(PipelineTest, ReportsOneTimingPerStage) {
+  std::vector<std::string> log;
+  Pipeline pipeline;
+  pipeline.Add(std::make_unique<RecordingStage>("a", &log))
+      .Add(std::make_unique<RecordingStage>("b", &log));
+  Frame frame;
+  std::vector<double> stage_ms = {123.0};  // Stale content is replaced.
+  ASSERT_TRUE(pipeline.Process(frame, &stage_ms).ok());
+  ASSERT_EQ(stage_ms.size(), 2u);
+  for (double ms : stage_ms) EXPECT_GE(ms, 0.0);
+}
+
 TEST(PipelineTest, EmptyPipelineIsOk) {
   Pipeline pipeline;
   Frame frame;
