@@ -28,6 +28,7 @@
 #include <system_error>
 #include <vector>
 
+#include "minicam/color.h"
 #include "minicam/frame.h"
 #include "minicam/io/dng_reader.h"
 #include "minicam/io/image_io.h"
@@ -56,6 +57,8 @@ options:
   --exposure EV                      extra exposure in stops (default: 0)
   --denoise on|off                   bilateral denoising (default: on)
   --sigma-spatial S, --sigma-range R bilateral parameters (default: 2, 0.08)
+  --raw-preview <png>                single file: also save the black-level
+                                     corrected Bayer mosaic as grayscale
 )";
 
 struct Options {
@@ -69,6 +72,7 @@ struct Options {
   std::string denoise = "on";
   minicam::BilateralOptions bilateral;
   std::string mode = "threaded";
+  std::string raw_preview;  // Single-file mode: also save the RAW mosaic.
 };
 
 int Fail(std::string_view message) {
@@ -187,6 +191,30 @@ minicam::Status SaveUpright(const minicam::Frame& frame,
   return minicam::SaveRgbPng(scratch, path);
 }
 
+// Saves the normalized Bayer mosaic (frame.bayer) as an upright grayscale
+// PNG: what the sensor recorded, one color sample per pixel. Brightened so
+// the mean is middle gray and sRGB-encoded, so it can be viewed.
+minicam::Status SaveRawPreview(const minicam::Frame& frame,
+                               const std::string& path) {
+  const minicam::Image<float>& bayer = frame.bayer;
+  double sum = 0.0;
+  for (float v : bayer.pixels()) sum += v;
+  const double mean = sum / static_cast<double>(bayer.size());
+  const auto gain = static_cast<float>(mean > 0.0 ? 0.18 / mean : 1.0);
+  minicam::Frame preview;
+  preview.meta = frame.meta;
+  preview.rgb.Resize(bayer.width(), bayer.height(), 3);
+  for (int y = 0; y < bayer.height(); ++y) {
+    for (int x = 0; x < bayer.width(); ++x) {
+      const float v =
+          minicam::LinearToSrgb(std::min(bayer.at(x, y) * gain, 1.0f));
+      for (int c = 0; c < 3; ++c) preview.rgb.at(x, y, c) = v;
+    }
+  }
+  minicam::Image<float> upright;
+  return SaveUpright(preview, path, upright);
+}
+
 int RunSingle(const Options& o) {
   minicam::Pipeline pipeline;
   minicam::Status status = BuildPipeline(o, pipeline);
@@ -208,6 +236,9 @@ int RunSingle(const Options& o) {
 
   minicam::Image<float> upright;
   status = SaveUpright(frame, o.output, upright);
+  if (status.ok() && !o.raw_preview.empty()) {
+    status = SaveRawPreview(frame, o.raw_preview);
+  }
   if (!status.ok()) return Fail(status.ToString());
 
   std::cout << "processed " << frame.rgb.width() << "x" << frame.rgb.height()
@@ -332,6 +363,8 @@ int main(int argc, char** argv) {
       }
     } else if (arg == "--mode") {
       o.mode = value;
+    } else if (arg == "--raw-preview") {
+      o.raw_preview = value;
     } else if (arg == "--sigma-range") {
       if (!ParseFloat(value, o.bilateral.sigma_range)) {
         return Fail("bad --sigma-range");
