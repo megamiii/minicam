@@ -15,6 +15,7 @@ add_executable(minicam_tests
   color_correction_test.cc
   color_test.cc
   demosaic_test.cc
+  denoise_test.cc
   image_test.cc
   metrics_test.cc
   pipeline_test.cc
