@@ -11,6 +11,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 option(MINICAM_BUILD_TESTS "Build the GoogleTest unit tests" ON)
+option(MINICAM_BUILD_BENCHMARKS "Build the Google Benchmark performance tests" ON)
 option(MINICAM_WERROR "Treat compiler warnings as errors" OFF)
 set(MINICAM_SANITIZER "" CACHE STRING "Sanitizer to build with: address, thread, or empty")
 
@@ -89,4 +90,8 @@ target_include_directories(side_by_side SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
 if(MINICAM_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
+endif()
+
+if(MINICAM_BUILD_BENCHMARKS)
+  add_subdirectory(bench)
 endif()

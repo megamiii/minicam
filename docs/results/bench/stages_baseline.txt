@@ -1,0 +1,40 @@
+2026-10-06T08:33:03+09:00
+Running ./minicam_bench
+Run on (8 X 2304.01 MHz CPU s)
+CPU Caches:
+  L1 Data 32 KiB (x4)
+  L1 Instruction 32 KiB (x4)
+  L2 Unified 256 KiB (x4)
+  L3 Unified 8192 KiB (x1)
+Load Average: 0.84, 1.37, 1.37
+------------------------------------------------------------------------------------------------------
+Benchmark                                            Time             CPU   Iterations UserCounters...
+------------------------------------------------------------------------------------------------------
+BM_Stage/black_level/real_time_mean               61.2 ms         61.2 ms            3 MP/s=200.77/s
+BM_Stage/black_level/real_time_median             61.5 ms         61.5 ms            3 MP/s=199.842/s
+BM_Stage/black_level/real_time_stddev             1.22 ms         1.22 ms            3 MP/s=4.04189/s
+BM_Stage/black_level/real_time_cv                 2.00 %          2.00 %             3 MP/s=2.01%
+BM_Stage/demosaic_bilinear/real_time_mean          310 ms          309 ms            3 MP/s=40.3503/s
+BM_Stage/demosaic_bilinear/real_time_median        287 ms          287 ms            3 MP/s=42.883/s
+BM_Stage/demosaic_bilinear/real_time_stddev       50.0 ms         48.7 ms            3 MP/s=6.00077/s
+BM_Stage/demosaic_bilinear/real_time_cv          16.15 %         15.77 %             3 MP/s=14.87%
+BM_Stage/demosaic_malvar/real_time_mean            471 ms          470 ms            3 MP/s=26.2057/s
+BM_Stage/demosaic_malvar/real_time_median          470 ms          466 ms            3 MP/s=26.1602/s
+BM_Stage/demosaic_malvar/real_time_stddev         40.2 ms         40.3 ms            3 MP/s=2.23056/s
+BM_Stage/demosaic_malvar/real_time_cv             8.52 %          8.57 %             3 MP/s=8.51%
+BM_Stage/white_balance/real_time_mean             87.9 ms         87.9 ms            3 MP/s=140.775/s
+BM_Stage/white_balance/real_time_median           89.3 ms         89.3 ms            3 MP/s=137.607/s
+BM_Stage/white_balance/real_time_stddev           8.60 ms         8.59 ms            3 MP/s=14.1594/s
+BM_Stage/white_balance/real_time_cv               9.78 %          9.78 %             3 MP/s=10.06%
+BM_Stage/color_correction/real_time_mean          64.5 ms         64.5 ms            3 MP/s=193.754/s
+BM_Stage/color_correction/real_time_median        58.8 ms         58.8 ms            3 MP/s=209.13/s
+BM_Stage/color_correction/real_time_stddev        10.6 ms         10.5 ms            3 MP/s=29.0334/s
+BM_Stage/color_correction/real_time_cv           16.39 %         16.36 %             3 MP/s=14.98%
+BM_Stage/tone_map/real_time_mean                  1116 ms         1115 ms            3 MP/s=11.1004/s
+BM_Stage/tone_map/real_time_median                1103 ms         1102 ms            3 MP/s=11.1423/s
+BM_Stage/tone_map/real_time_stddev                 120 ms          120 ms            3 MP/s=1.17604/s
+BM_Stage/tone_map/real_time_cv                   10.71 %         10.72 %             3 MP/s=10.59%
+BM_Stage/denoise_bilateral/real_time_mean        12832 ms        12828 ms            3 MP/s=0.960431/s
+BM_Stage/denoise_bilateral/real_time_median      12439 ms        12438 ms            3 MP/s=0.98799/s
+BM_Stage/denoise_bilateral/real_time_stddev        841 ms          842 ms            3 MP/s=0.0607995/s
+BM_Stage/denoise_bilateral/real_time_cv           6.56 %          6.56 %             3 MP/s=6.33%
