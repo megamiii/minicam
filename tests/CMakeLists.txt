@@ -35,3 +35,10 @@ include(GoogleTest)
 # Discover tests when ctest runs rather than at build time, so sanitizer
 # builds never need to execute the binary during the build.
 gtest_discover_tests(minicam_tests DISCOVERY_MODE PRE_TEST)
+
+# Tests that need file I/O (OpenCV, LibRaw). Tests that read the HDR+ dataset
+# are skipped when data/hdrplus is absent, as in CI.
+add_executable(minicam_io_tests dng_reader_test.cc)
+target_link_libraries(minicam_io_tests PRIVATE minicam_io minicam_warnings GTest::gtest_main)
+target_compile_definitions(minicam_io_tests PRIVATE MINICAM_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+gtest_discover_tests(minicam_io_tests DISCOVERY_MODE PRE_TEST)

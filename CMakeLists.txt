@@ -60,12 +60,15 @@ target_include_directories(minicam_core PUBLIC include)
 find_package(Threads REQUIRED)
 target_link_libraries(minicam_core PUBLIC Threads::Threads PRIVATE minicam_warnings)
 
-# Image file I/O. OpenCV is used here only to decode and encode files.
+# File I/O: camera RAW via LibRaw (thread-safe build), image files via
+# OpenCV, which is used here only to decode and encode files.
 find_package(OpenCV REQUIRED COMPONENTS core imgcodecs)
-add_library(minicam_io src/io/image_io.cc)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBRAW REQUIRED IMPORTED_TARGET libraw_r)
+add_library(minicam_io src/io/dng_reader.cc src/io/image_io.cc)
 target_link_libraries(minicam_io
   PUBLIC minicam_core
-  PRIVATE minicam_warnings opencv_core opencv_imgcodecs)
+  PRIVATE minicam_warnings opencv_core opencv_imgcodecs PkgConfig::LIBRAW)
 target_include_directories(minicam_io SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
 
 add_executable(make_synthetic_raw tools/make_synthetic_raw.cc)
