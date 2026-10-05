@@ -109,6 +109,33 @@ TYPED_TEST(DemosaicTest, RejectsMissingMosaic) {
   EXPECT_EQ(TypeParam().Process(frame).code(), StatusCode::kInvalidArgument);
 }
 
+// The fast path changes only how samples are fetched, not the arithmetic, so
+// it must match the reference exactly, including at the borders.
+TEST(MalvarDemosaicTest, FastPathIsBitIdenticalToReference) {
+  MalvarOptions reference;
+  reference.implementation = MalvarOptions::Implementation::kReference;
+  for (auto [width, height] : {std::pair{64, 48}, std::pair{37, 23},
+                               std::pair{5, 5}, std::pair{3, 4}}) {
+    const Image<float> scene = testing::MakeTestScene(width, height);
+    for (CfaPattern cfa : kAllPatterns) {
+      Frame expected = MosaicFloat(scene, cfa);
+      ASSERT_TRUE(MalvarDemosaicStage(reference).Process(expected).ok());
+      for (int threads : {1, 3, 0}) {
+        MalvarOptions fast;
+        fast.implementation = MalvarOptions::Implementation::kFast;
+        fast.num_threads = threads;
+        Frame got = MosaicFloat(scene, cfa);
+        ASSERT_TRUE(MalvarDemosaicStage(fast).Process(got).ok());
+        for (size_t i = 0; i < got.rgb.size(); ++i) {
+          ASSERT_EQ(got.rgb.pixels()[i], expected.rgb.pixels()[i])
+              << width << "x" << height << " " << CfaPatternName(cfa) << " "
+              << threads << " threads, element " << i;
+        }
+      }
+    }
+  }
+}
+
 struct ScenePsnr {
   double full = 0.0;
   double smooth = 0.0;

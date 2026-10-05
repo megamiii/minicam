@@ -4,6 +4,7 @@
 #include <string>
 
 #include "minicam/cfa.h"
+#include "minicam/parallel.h"
 
 namespace minicam {
 namespace {
@@ -78,6 +79,56 @@ Status BilinearDemosaicStage::Process(Frame& frame) {
   return OkStatus();
 }
 
+namespace {
+
+// Malvar-He-Cutler for one pixel. `p(dx, dy)` returns the mosaic sample at
+// that offset from the pixel; `color` is the pixel's CFA color and
+// `horizontal_color` the color of its right neighbor.
+template <typename Sampler>
+inline void MalvarPixel(const Sampler& p, int color, int horizontal_color,
+                        float* dst) {
+  const float center = p(0, 0);
+  // Neighbor sums shared by the kernels. At distance 1 on the axes and on the
+  // diagonals sit the other colors; at distance 2 on the axes sits the same
+  // color as the center (used for the Laplacian correction).
+  const float h1 = p(-1, 0) + p(1, 0);
+  const float v1 = p(0, -1) + p(0, 1);
+  const float h2 = p(-2, 0) + p(2, 0);
+  const float v2 = p(0, -2) + p(0, 2);
+  const float diag = p(-1, -1) + p(1, -1) + p(-1, 1) + p(1, 1);
+
+  float rgb[3];
+  rgb[color] = center;
+  if (color == kGreen) {
+    // Color sampled left/right of this pixel, and the one above/below.
+    const float horizontal =
+        (5.0f * center + 4.0f * h1 - diag - h2 + 0.5f * v2) / 8.0f;
+    const float vertical =
+        (5.0f * center + 4.0f * v1 - diag - v2 + 0.5f * h2) / 8.0f;
+    rgb[horizontal_color] = horizontal;
+    rgb[2 - horizontal_color] = vertical;  // kRed <-> kBlue.
+  } else {
+    rgb[kGreen] = (4.0f * center + 2.0f * (h1 + v1) - (h2 + v2)) / 8.0f;
+    rgb[2 - color] = (6.0f * center + 2.0f * diag - 1.5f * (h2 + v2)) / 8.0f;
+  }
+
+  // The correction terms can overshoot at sharp edges.
+  for (int c = 0; c < 3; ++c) dst[c] = std::clamp(rgb[c], 0.0f, 1.0f);
+}
+
+// Pixel (x, y) with mirrored reads, valid anywhere in the image.
+inline void MalvarPixelMirrored(const Image<float>& in, CfaPattern cfa, int x,
+                                int y, float* dst) {
+  const int width = in.width();
+  const int height = in.height();
+  auto p = [&](int dx, int dy) {
+    return in.at(Reflect(x + dx, width), Reflect(y + dy, height));
+  };
+  MalvarPixel(p, CfaColorAt(cfa, x, y), CfaColorAt(cfa, x + 1, y), dst);
+}
+
+}  // namespace
+
 Status MalvarDemosaicStage::Process(Frame& frame) {
   const Image<float>& in = frame.bayer;
   MINICAM_RETURN_IF_ERROR(ValidateMosaic(in, /*reach=*/2));
@@ -88,45 +139,43 @@ Status MalvarDemosaicStage::Process(Frame& frame) {
   Image<float>& out = frame.rgb;
   out.Resize(width, height, 3);
 
-  for (int y = 0; y < height; ++y) {
-    for (int x = 0; x < width; ++x) {
-      // Sample at offset (dx, dy) from the current pixel.
-      auto p = [&](int dx, int dy) {
-        return in.at(Reflect(x + dx, width), Reflect(y + dy, height));
-      };
-      const int color = CfaColorAt(cfa, x, y);
-      const float center = p(0, 0);
-      // Neighbor sums shared by the kernels. At distance 1 on the axes and on
-      // the diagonals sit the other colors; at distance 2 on the axes sits the
-      // same color as the center (used for the Laplacian correction).
-      const float h1 = p(-1, 0) + p(1, 0);
-      const float v1 = p(0, -1) + p(0, 1);
-      const float h2 = p(-2, 0) + p(2, 0);
-      const float v2 = p(0, -2) + p(0, 2);
-      const float diag = p(-1, -1) + p(1, -1) + p(-1, 1) + p(1, 1);
-
-      float rgb[3];
-      rgb[color] = center;
-      if (color == kGreen) {
-        // Color sampled left/right of this pixel, and the one above/below.
-        const float horizontal =
-            (5.0f * center + 4.0f * h1 - diag - h2 + 0.5f * v2) / 8.0f;
-        const float vertical =
-            (5.0f * center + 4.0f * v1 - diag - v2 + 0.5f * h2) / 8.0f;
-        const int horizontal_color = CfaColorAt(cfa, x + 1, y);
-        rgb[horizontal_color] = horizontal;
-        rgb[2 - horizontal_color] = vertical;  // kRed <-> kBlue.
-      } else {
-        rgb[kGreen] = (4.0f * center + 2.0f * (h1 + v1) - (h2 + v2)) / 8.0f;
-        rgb[2 - color] =
-            (6.0f * center + 2.0f * diag - 1.5f * (h2 + v2)) / 8.0f;
+  if (options_.implementation == MalvarOptions::Implementation::kReference) {
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) {
+        MalvarPixelMirrored(in, cfa, x, y, &out.at(x, y));
       }
-
-      // The correction terms can overshoot at sharp edges.
-      float* dst = &out.at(x, y);
-      for (int c = 0; c < 3; ++c) dst[c] = std::clamp(rgb[c], 0.0f, 1.0f);
     }
+    return OkStatus();
   }
+
+  constexpr int kReach = 2;
+  ParallelFor(
+      height, ResolveThreadCount(options_.num_threads),
+      [&](int y_begin, int y_end) {
+        for (int y = y_begin; y < y_end; ++y) {
+          float* out_row = out.row(y);
+          const bool border_row = y < kReach || y >= height - kReach;
+          if (border_row || width < 2 * kReach + 1) {
+            for (int x = 0; x < width; ++x) {
+              MalvarPixelMirrored(in, cfa, x, y, out_row + 3 * x);
+            }
+            continue;
+          }
+          // Interior rows: mirrored reads only for the 2 columns at each
+          // end; everything else reads straight from five row pointers.
+          for (int x : {0, 1, width - 2, width - 1}) {
+            MalvarPixelMirrored(in, cfa, x, y, out_row + 3 * x);
+          }
+          const float* rows[5] = {in.row(y - 2), in.row(y - 1), in.row(y),
+                                  in.row(y + 1), in.row(y + 2)};
+          // The CFA colors repeat every 2 pixels along a row.
+          const int colors[2] = {CfaColorAt(cfa, 0, y), CfaColorAt(cfa, 1, y)};
+          for (int x = kReach; x < width - kReach; ++x) {
+            auto p = [&](int dx, int dy) { return rows[dy + 2][x + dx]; };
+            MalvarPixel(p, colors[x & 1], colors[(x + 1) & 1], out_row + 3 * x);
+          }
+        }
+      });
   return OkStatus();
 }
 

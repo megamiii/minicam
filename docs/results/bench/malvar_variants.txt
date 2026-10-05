@@ -1,0 +1,24 @@
+2026-10-06T08:56:37+09:00
+Running ./minicam_bench
+Run on (8 X 2304.01 MHz CPU s)
+CPU Caches:
+  L1 Data 32 KiB (x4)
+  L1 Instruction 32 KiB (x4)
+  L2 Unified 256 KiB (x4)
+  L3 Unified 8192 KiB (x1)
+Load Average: 0.32, 0.73, 0.97
+-------------------------------------------------------------------------------------------------------------
+Benchmark                                                   Time             CPU   Iterations UserCounters...
+-------------------------------------------------------------------------------------------------------------
+BM_Stage/malvar_fast_all_threads/real_time_mean          58.3 ms         48.4 ms            3 MP/s=212.745/s
+BM_Stage/malvar_fast_all_threads/real_time_median        55.3 ms         47.7 ms            3 MP/s=222.352/s
+BM_Stage/malvar_fast_all_threads/real_time_stddev        6.74 ms         6.83 ms            3 MP/s=23.1936/s
+BM_Stage/malvar_fast_all_threads/real_time_cv           11.56 %         14.12 %             3 MP/s=10.90%
+BM_Stage/malvar_reference_1thread/real_time_mean          321 ms          321 ms            3 MP/s=38.7047/s
+BM_Stage/malvar_reference_1thread/real_time_median        301 ms          301 ms            3 MP/s=40.763/s
+BM_Stage/malvar_reference_1thread/real_time_stddev       44.6 ms         45.3 ms            3 MP/s=5.00596/s
+BM_Stage/malvar_reference_1thread/real_time_cv          13.88 %         14.13 %             3 MP/s=12.93%
+BM_Stage/malvar_fast_1thread/real_time_mean               138 ms          138 ms            3 MP/s=90.0379/s
+BM_Stage/malvar_fast_1thread/real_time_median             132 ms          132 ms            3 MP/s=92.9857/s
+BM_Stage/malvar_fast_1thread/real_time_stddev            15.8 ms         15.8 ms            3 MP/s=9.87294/s
+BM_Stage/malvar_fast_1thread/real_time_cv               11.51 %         11.51 %             3 MP/s=10.97%

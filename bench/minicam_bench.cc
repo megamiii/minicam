@@ -149,6 +149,29 @@ BENCHMARK_CAPTURE(BM_Stage, denoise_bilateral, 5, Make<BilateralDenoiseStage>())
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime();
 
+// Malvar variants for the optimization record.
+std::function<std::unique_ptr<Stage>()> MakeMalvar(
+    MalvarOptions::Implementation implementation, int num_threads) {
+  return [=] {
+    MalvarOptions options;
+    options.implementation = implementation;
+    options.num_threads = num_threads;
+    return std::make_unique<MalvarDemosaicStage>(options);
+  };
+}
+BENCHMARK_CAPTURE(BM_Stage, malvar_reference_1thread, 1,
+                  MakeMalvar(MalvarOptions::Implementation::kReference, 1))
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(BM_Stage, malvar_fast_1thread, 1,
+                  MakeMalvar(MalvarOptions::Implementation::kFast, 1))
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(BM_Stage, malvar_fast_all_threads, 1,
+                  MakeMalvar(MalvarOptions::Implementation::kFast, 0))
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+
 // Tone mapping variants for the optimization record.
 std::function<std::unique_ptr<Stage>()> MakeToneMap(
     ToneMapOptions::Implementation implementation, int num_threads) {

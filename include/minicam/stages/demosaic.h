@@ -44,10 +44,30 @@ class BilinearDemosaicStage final : public Stage {
 // alpha = 1/2, beta = 5/8, gamma = 3/4 from the paper), so the cost stays a
 // small linear filter. Output is clamped to [0, 1] because the correction can
 // overshoot at sharp edges.
+struct MalvarOptions {
+  enum class Implementation {
+    // Every neighbor read goes through border mirroring. Kept as the
+    // correctness reference and the "before" of the optimization.
+    kReference,
+    // Mirroring only on the 2-pixel image border; interior pixels read
+    // through five row pointers. Bit-identical to kReference.
+    kFast,
+  };
+  Implementation implementation = Implementation::kFast;
+  // Threads for row bands (kFast); 0 means one per hardware thread.
+  int num_threads = 0;
+};
+
 class MalvarDemosaicStage final : public Stage {
  public:
+  explicit MalvarDemosaicStage(MalvarOptions options = {})
+      : options_(options) {}
+
   std::string_view Name() const override { return "demosaic_malvar"; }
   Status Process(Frame& frame) override;
+
+ private:
+  MalvarOptions options_;
 };
 
 }  // namespace minicam
