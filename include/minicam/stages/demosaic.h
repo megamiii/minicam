@@ -30,6 +30,26 @@ class BilinearDemosaicStage final : public Stage {
   Status Process(Frame& frame) override;
 };
 
+// Malvar-He-Cutler demosaicing (ICASSP 2004). Reads frame.bayer, writes
+// frame.rgb.
+//
+// Starts from the bilinear estimate and adds a scaled Laplacian of the color
+// measured at the pixel, e.g. for green at a red pixel:
+//
+//   G = G_bilinear + 1/2 * (R(x,y) - mean of the 4 reds two pixels away)
+//
+// The idea is that color differences (R - G) vary more slowly than the colors
+// themselves, so an edge measured in one channel also predicts the edge in the
+// others. Each case collapses into one fixed 5x5 kernel (weights / 8, gains
+// alpha = 1/2, beta = 5/8, gamma = 3/4 from the paper), so the cost stays a
+// small linear filter. Output is clamped to [0, 1] because the correction can
+// overshoot at sharp edges.
+class MalvarDemosaicStage final : public Stage {
+ public:
+  std::string_view Name() const override { return "demosaic_malvar"; }
+  Status Process(Frame& frame) override;
+};
+
 }  // namespace minicam
 
 #endif  // MINICAM_STAGES_DEMOSAIC_H_
