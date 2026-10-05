@@ -103,6 +103,8 @@ TEST(DngReaderHdrPlusTest, ReadsPlausibleSensorMetadata) {
     EXPECT_NEAR(row_sum, 1.0f, 0.05f) << "row " << r;
   }
   EXPECT_GT(m.exposure_time_s, 0.0);
+  EXPECT_GE(m.orientation_quarter_turns, 0);
+  EXPECT_LE(m.orientation_quarter_turns, 3);
 
   // Pixel values must lie within the sensor's range.
   const uint16_t max_value =
@@ -115,7 +117,8 @@ TEST(DngReaderHdrPlusTest, ReadsPlausibleSensorMetadata) {
             << m.black_level[2] << "/" << m.black_level[3] << ", white "
             << m.white_level << ", wb " << m.wb_gains[0] << "/" << m.wb_gains[2]
             << ", exposure " << m.exposure_time_s << " s, gain "
-            << m.analog_gain << "\n";
+            << m.analog_gain << ", quarter turns "
+            << m.orientation_quarter_turns << "\n";
 }
 
 TEST(DngReaderHdrPlusTest, SidecarMatrixOverridesTheFileMatrix) {

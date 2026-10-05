@@ -6,7 +6,8 @@
 //
 //   char[8]  magic "MCAMRAW1"
 //   u32      width, height
-//   u8       cfa pattern (CfaPattern), u8[3] reserved (0)
+//   u8       cfa pattern (CfaPattern), u8 orientation (clockwise quarter
+//            turns, 0-3), u8[2] reserved (0)
 //   u16      white_level, black_level[4]
 //   f32      wb_gains[3], color_matrix[9]
 //   f64      exposure_time_s

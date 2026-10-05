@@ -24,6 +24,7 @@ namespace minicam {
 //   color_matrix   camera RGB -> linear sRGB (LibRaw rgb_cam), unless a
 //                  sidecar matrix is set with SetColorMatrixOverride()
 //   exposure_time_s, analog_gain (ISO / 100)
+//   orientation    from the Orientation tag (LibRaw flip)
 // frame.meta.frame_id and timestamp_ns are left unchanged.
 //
 // Not thread-safe: use one DngReader per thread. The LibRaw instance is kept

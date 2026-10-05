@@ -118,6 +118,22 @@ Status DngReader::Read(const std::string& path, Frame& frame) {
     }
   }
 
+  // LibRaw flip codes: 0 = none, 3 = 180 degrees, 5 = 90 counter-clockwise,
+  // 6 = 90 clockwise (needed to display the image upright).
+  switch (sizes.flip) {
+    case 3:
+      m.orientation_quarter_turns = 2;
+      break;
+    case 5:
+      m.orientation_quarter_turns = 3;
+      break;
+    case 6:
+      m.orientation_quarter_turns = 1;
+      break;
+    default:
+      m.orientation_quarter_turns = 0;
+  }
+
   m.exposure_time_s = raw.imgdata.other.shutter;
   m.analog_gain = raw.imgdata.other.iso_speed > 0.0f
                       ? raw.imgdata.other.iso_speed / 100.0f

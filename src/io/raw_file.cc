@@ -45,7 +45,8 @@ Status WriteRawFile(const Frame& frame, const std::string& path) {
   Put(out, static_cast<uint32_t>(raw.width()));
   Put(out, static_cast<uint32_t>(raw.height()));
   Put(out, static_cast<uint8_t>(m.cfa));
-  Put(out, std::array<uint8_t, 3>{});
+  Put(out, static_cast<uint8_t>(m.orientation_quarter_turns & 3));
+  Put(out, std::array<uint8_t, 2>{});
   Put(out, m.white_level);
   Put(out, m.black_level);
   Put(out, m.wb_gains);
@@ -72,10 +73,11 @@ Status ReadRawFile(const std::string& path, Frame& frame) {
   uint32_t width = 0;
   uint32_t height = 0;
   uint8_t cfa = 0;
-  std::array<uint8_t, 3> reserved{};
+  uint8_t orientation = 0;
+  std::array<uint8_t, 2> reserved{};
   FrameMetadata m;
   if (!Get(in, width) || !Get(in, height) || !Get(in, cfa) ||
-      !Get(in, reserved) || !Get(in, m.white_level) ||
+      !Get(in, orientation) || !Get(in, reserved) || !Get(in, m.white_level) ||
       !Get(in, m.black_level) || !Get(in, m.wb_gains) ||
       !Get(in, m.color_matrix) || !Get(in, m.exposure_time_s) ||
       !Get(in, m.analog_gain) || !Get(in, m.frame_id) ||
@@ -90,6 +92,7 @@ Status ReadRawFile(const std::string& path, Frame& frame) {
     return DataLossError("invalid CFA pattern in '" + path + "'");
   }
   m.cfa = static_cast<CfaPattern>(cfa);
+  m.orientation_quarter_turns = orientation & 3;
 
   frame.raw.Resize(static_cast<int>(width), static_cast<int>(height), 1);
   in.read(reinterpret_cast<char*>(frame.raw.pixels().data()),

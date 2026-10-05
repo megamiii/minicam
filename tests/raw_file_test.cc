@@ -26,6 +26,7 @@ Frame MakeFrame() {
   frame.meta.exposure_time_s = 0.01;
   frame.meta.analog_gain = 2.0f;
   frame.meta.cfa = CfaPattern::kGrbg;
+  frame.meta.orientation_quarter_turns = 3;
   frame.meta.black_level = {60, 61, 62, 63};
   frame.meta.white_level = 1023;
   frame.meta.wb_gains = {2.0f, 1.0f, 1.5f};
@@ -54,6 +55,7 @@ TEST(RawFileTest, RoundTripPreservesPixelsAndMetadata) {
   EXPECT_EQ(b.exposure_time_s, a.exposure_time_s);
   EXPECT_EQ(b.analog_gain, a.analog_gain);
   EXPECT_EQ(b.cfa, a.cfa);
+  EXPECT_EQ(b.orientation_quarter_turns, a.orientation_quarter_turns);
   EXPECT_EQ(b.black_level, a.black_level);
   EXPECT_EQ(b.white_level, a.white_level);
   EXPECT_EQ(b.wb_gains, a.wb_gains);

@@ -1,18 +1,21 @@
 // minicam command-line tool.
 //
-//   minicam --input frame.raw --output out.png [options]
-//   minicam --input frames_dir/ --output out_dir/ [--mode threaded] [options]
+//   minicam --input frame.dng --output out.png [options]
+//   minicam --input burst_dir/ --output out_dir/ [--mode threaded] [options]
 //
-// Reads minicam .raw files (see make_synthetic_raw) and runs the ISP:
+// Reads camera RAW files (.dng, via LibRaw) or minicam .raw files (see
+// make_synthetic_raw) and runs the ISP:
 //   black level -> demosaic -> white balance -> color correction
 //   -> tone map -> denoise
 // and writes 8-bit sRGB PNGs. Each stage can be selected or turned off.
 //
-// With a directory as input (stream mode), every .raw file in it is processed
-// as one frame sequence, by the thread-per-stage pipeline (--mode threaded,
-// the default) or one frame at a time (--mode sequential).
+// With a directory as input (stream mode), every .dng/.raw file in it is
+// processed as one frame sequence, by the thread-per-stage pipeline
+// (--mode threaded, the default) or one frame at a time (--mode sequential).
+// An HDR+ "rgb2rgb.txt" next to the input replaces the file's color matrix.
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
@@ -26,6 +29,7 @@
 #include <vector>
 
 #include "minicam/frame.h"
+#include "minicam/io/dng_reader.h"
 #include "minicam/io/image_io.h"
 #include "minicam/io/raw_file.h"
 #include "minicam/pipeline.h"
@@ -40,8 +44,8 @@
 namespace {
 
 constexpr std::string_view kUsage =
-    R"(usage: minicam --input <frame.raw> --output <out.png> [options]
-       minicam --input <dir with .raw files> --output <out dir> [options]
+    R"(usage: minicam --input <frame.dng|frame.raw> --output <out.png> [options]
+       minicam --input <dir with .dng/.raw files> --output <out dir> [options]
 
 options:
   --mode threaded|sequential         stream mode pipeline (default: threaded)
@@ -128,20 +132,82 @@ minicam::Status BuildPipeline(const Options& o, PipelineT& pipeline) {
   return minicam::OkStatus();
 }
 
+std::string LowerExtension(const std::filesystem::path& path) {
+  std::string ext = path.extension().string();
+  std::transform(ext.begin(), ext.end(), ext.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+  return ext;
+}
+
+bool IsInputFile(const std::filesystem::path& path) {
+  const std::string ext = LowerExtension(path);
+  return ext == ".dng" || ext == ".raw";
+}
+
+// Reads .dng files with LibRaw and .raw files with minicam's own reader. If
+// the folder holds an HDR+ rgb2rgb.txt, it replaces the DNG color matrix.
+class InputReader {
+ public:
+  static minicam::StatusOr<std::unique_ptr<InputReader>> Create(
+      const std::filesystem::path& folder) {
+    auto reader = std::make_unique<InputReader>();
+    const std::filesystem::path sidecar = folder / "rgb2rgb.txt";
+    if (std::filesystem::exists(sidecar)) {
+      auto matrix = minicam::ReadColorMatrixFile(sidecar.string());
+      if (!matrix.ok()) return matrix.status();
+      reader->dng_.SetColorMatrixOverride(*matrix);
+      reader->has_sidecar_ = true;
+    }
+    return reader;
+  }
+
+  minicam::Status Read(const std::filesystem::path& path,
+                       minicam::Frame& frame) {
+    if (LowerExtension(path) == ".dng") return dng_.Read(path.string(), frame);
+    return minicam::ReadRawFile(path.string(), frame);
+  }
+
+  bool has_sidecar() const { return has_sidecar_; }
+
+ private:
+  minicam::DngReader dng_;
+  bool has_sidecar_ = false;
+};
+
+// Writes frame.rgb as a PNG, rotated upright according to the frame's
+// orientation. `scratch` holds the rotated copy and is reused across frames.
+minicam::Status SaveUpright(const minicam::Frame& frame,
+                            const std::string& path,
+                            minicam::Image<float>& scratch) {
+  if (frame.meta.orientation_quarter_turns == 0) {
+    return minicam::SaveRgbPng(frame.rgb, path);
+  }
+  minicam::RotateClockwise(frame.rgb, frame.meta.orientation_quarter_turns,
+                           scratch);
+  return minicam::SaveRgbPng(scratch, path);
+}
+
 int RunSingle(const Options& o) {
   minicam::Pipeline pipeline;
   minicam::Status status = BuildPipeline(o, pipeline);
   if (!status.ok()) return Fail(status.message());
 
+  auto reader =
+      InputReader::Create(std::filesystem::path(o.input).parent_path());
+  if (!reader.ok()) return Fail(reader.status().ToString());
   minicam::Frame frame;
-  status = minicam::ReadRawFile(o.input, frame);
+  status = (*reader)->Read(o.input, frame);
   if (!status.ok()) return Fail(status.ToString());
+  if ((*reader)->has_sidecar()) {
+    std::cout << "using rgb2rgb.txt color matrix\n";
+  }
 
   std::vector<double> stage_ms;
   status = pipeline.Process(frame, &stage_ms);
   if (!status.ok()) return Fail(status.ToString());
 
-  status = minicam::SaveRgbPng(frame.rgb, o.output);
+  minicam::Image<float> upright;
+  status = SaveUpright(frame, o.output, upright);
   if (!status.ok()) return Fail(status.ToString());
 
   std::cout << "processed " << frame.rgb.width() << "x" << frame.rgb.height()
@@ -162,26 +228,31 @@ int RunSingle(const Options& o) {
   return 0;
 }
 
-// Processes every .raw file in o.input as one frame sequence.
+// Processes every .dng/.raw file in o.input as one frame sequence.
 int RunStream(const Options& o) {
   namespace fs = std::filesystem;
   std::vector<fs::path> inputs;
   std::error_code ec;
   for (const fs::directory_entry& entry : fs::directory_iterator(o.input, ec)) {
-    if (entry.path().extension() == ".raw") inputs.push_back(entry.path());
+    if (IsInputFile(entry.path())) inputs.push_back(entry.path());
   }
   if (ec) return Fail("cannot read " + o.input + ": " + ec.message());
-  if (inputs.empty()) return Fail("no .raw files in " + o.input);
+  if (inputs.empty()) return Fail("no .dng or .raw files in " + o.input);
   std::sort(inputs.begin(), inputs.end());
   fs::create_directories(o.output, ec);
   if (ec) return Fail("cannot create " + o.output + ": " + ec.message());
 
+  auto reader = InputReader::Create(o.input);
+  if (!reader.ok()) return Fail(reader.status().ToString());
+
   // The same source and sink drive both modes, so they are compared fairly.
+  // The source runs on the source thread, so file decoding overlaps with
+  // processing of earlier frames.
   size_t next = 0;
   auto source = [&](minicam::Frame& frame) -> minicam::StatusOr<bool> {
     if (next == inputs.size()) return false;
     const minicam::FrameMetadata assigned = frame.meta;
-    MINICAM_RETURN_IF_ERROR(minicam::ReadRawFile(inputs[next].string(), frame));
+    MINICAM_RETURN_IF_ERROR((*reader)->Read(inputs[next], frame));
     // Keep the pipeline's sequence number and timestamp; the file supplies
     // the sensor metadata.
     frame.meta.frame_id = assigned.frame_id;
@@ -189,10 +260,11 @@ int RunStream(const Options& o) {
     ++next;
     return true;
   };
+  minicam::Image<float> upright;  // Only touched by the sink thread.
   auto sink = [&](minicam::Frame& frame) -> minicam::Status {
     const fs::path out = fs::path(o.output) /
                          (inputs[frame.meta.frame_id].stem().string() + ".png");
-    return minicam::SaveRgbPng(frame.rgb, out.string());
+    return SaveUpright(frame, out.string(), upright);
   };
 
   const auto start = std::chrono::steady_clock::now();

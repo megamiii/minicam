@@ -66,6 +66,38 @@ class Image {
   std::vector<T> data_;
 };
 
+// Writes `in` rotated clockwise by `quarter_turns` x 90 degrees into `out`.
+// `out` must not alias `in`; its memory is reused when large enough.
+template <typename T>
+void RotateClockwise(const Image<T>& in, int quarter_turns, Image<T>& out) {
+  const int turns = ((quarter_turns % 4) + 4) % 4;
+  const int w = in.width();
+  const int h = in.height();
+  const int ch = in.channels();
+  if (turns % 2 == 0) {
+    out.Resize(w, h, ch);
+  } else {
+    out.Resize(h, w, ch);
+  }
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      int ox = x;
+      int oy = y;
+      if (turns == 1) {  // (x, y) -> (h - 1 - y, x)
+        ox = h - 1 - y;
+        oy = x;
+      } else if (turns == 2) {
+        ox = w - 1 - x;
+        oy = h - 1 - y;
+      } else if (turns == 3) {  // (x, y) -> (y, w - 1 - x)
+        ox = y;
+        oy = w - 1 - x;
+      }
+      for (int c = 0; c < ch; ++c) out.at(ox, oy, c) = in.at(x, y, c);
+    }
+  }
+}
+
 }  // namespace minicam
 
 #endif  // MINICAM_IMAGE_H_

@@ -17,6 +17,10 @@ struct FrameMetadata {
   int64_t timestamp_ns = 0;
   double exposure_time_s = 0.0;
   float analog_gain = 1.0f;
+  // Clockwise quarter turns (0-3) needed to display the image upright. The
+  // sensor always reads out in landscape; this comes from the RAW file's
+  // Orientation tag and is applied only when the output is written.
+  int orientation_quarter_turns = 0;
 
   // Sensor description, read from the RAW file.
   CfaPattern cfa = CfaPattern::kRggb;

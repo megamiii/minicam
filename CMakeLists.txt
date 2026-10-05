@@ -80,6 +80,12 @@ target_link_libraries(minicam PRIVATE minicam_io minicam_warnings)
 add_executable(demosaic_eval tools/demosaic_eval.cc)
 target_link_libraries(demosaic_eval PRIVATE minicam_io minicam_warnings)
 
+# Display helper for comparison images; OpenCV only resizes and joins.
+find_package(OpenCV REQUIRED COMPONENTS imgproc)
+add_executable(side_by_side tools/side_by_side.cc)
+target_link_libraries(side_by_side PRIVATE minicam_warnings opencv_core opencv_imgcodecs opencv_imgproc)
+target_include_directories(side_by_side SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+
 if(MINICAM_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
