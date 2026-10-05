@@ -11,6 +11,7 @@ FetchContent_MakeAvailable(googletest)
 
 add_executable(minicam_tests
   black_level_test.cc
+  bounded_queue_test.cc
   cfa_test.cc
   color_correction_test.cc
   color_test.cc
@@ -26,7 +27,10 @@ add_executable(minicam_tests
   tone_map_test.cc
   white_balance_test.cc
 )
-target_link_libraries(minicam_tests PRIVATE minicam_core minicam_warnings GTest::gtest_main)
+find_package(Threads REQUIRED)
+target_link_libraries(minicam_tests PRIVATE minicam_core minicam_warnings GTest::gtest_main Threads::Threads)
 
 include(GoogleTest)
-gtest_discover_tests(minicam_tests)
+# Discover tests when ctest runs rather than at build time, so sanitizer
+# builds never need to execute the binary during the build.
+gtest_discover_tests(minicam_tests DISCOVERY_MODE PRE_TEST)
