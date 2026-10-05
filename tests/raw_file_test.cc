@@ -29,8 +29,8 @@ Frame MakeFrame() {
   frame.meta.black_level = {60, 61, 62, 63};
   frame.meta.white_level = 1023;
   frame.meta.wb_gains = {2.0f, 1.0f, 1.5f};
-  frame.meta.color_matrix = {1.5f, -0.3f, -0.2f, -0.1f, 1.4f,
-                             -0.3f, 0.0f, -0.5f, 1.5f};
+  frame.meta.color_matrix = {1.5f,  -0.3f, -0.2f, -0.1f, 1.4f,
+                             -0.3f, 0.0f,  -0.5f, 1.5f};
   return frame;
 }
 

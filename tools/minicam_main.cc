@@ -29,7 +29,8 @@
 
 namespace {
 
-constexpr std::string_view kUsage = R"(usage: minicam --input <frame.raw> --output <out.png> [options]
+constexpr std::string_view kUsage =
+    R"(usage: minicam --input <frame.raw> --output <out.png> [options]
 
 options:
   --demosaic bilinear|malvar         demosaicing algorithm (default: malvar)
@@ -78,7 +79,8 @@ minicam::Status BuildPipeline(const Options& o, minicam::Pipeline& pipeline) {
 
   using WbMode = minicam::WhiteBalanceStage::Mode;
   if (o.wb == "gray-world") {
-    pipeline.Add(std::make_unique<minicam::WhiteBalanceStage>(WbMode::kGrayWorld));
+    pipeline.Add(
+        std::make_unique<minicam::WhiteBalanceStage>(WbMode::kGrayWorld));
   } else if (o.wb == "metadata") {
     pipeline.Add(
         std::make_unique<minicam::WhiteBalanceStage>(WbMode::kFromMetadata));

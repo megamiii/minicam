@@ -103,8 +103,7 @@ TEST(ToneMapTest, LowContrastSceneIsNotStretchedToWhite) {
 
 TEST(ToneMapTest, RejectsMissingRgb) {
   Frame frame;
-  EXPECT_EQ(ToneMapStage().Process(frame).code(),
-            StatusCode::kInvalidArgument);
+  EXPECT_EQ(ToneMapStage().Process(frame).code(), StatusCode::kInvalidArgument);
 }
 
 }  // namespace

@@ -6,4 +6,16 @@ ColumnLimit: 80
 DerivePointerAlignment: false
 PointerAlignment: Left
 IncludeBlocks: Regroup
+# Google style include order: C system, C++ standard library, other
+# libraries, then project headers. The preset would treat <gtest/gtest.h> as
+# a C system header because it ends in .h.
+IncludeCategories:
+  - Regex: '^<[a-z0-9_]+\.h>$'
+    Priority: 1
+  - Regex: '^<[a-z0-9_]+>$'
+    Priority: 2
+  - Regex: '^<'
+    Priority: 3
+  - Regex: '.*'
+    Priority: 4
 ...

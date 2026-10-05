@@ -35,8 +35,8 @@ TEST(PsnrTest, BorderIsIgnored) {
 }
 
 TEST(PsnrTest, RejectsMismatchedSizes) {
-  EXPECT_FALSE(Psnr(testing::MakeTestScene(8, 8), testing::MakeTestScene(8, 6))
-                   .ok());
+  EXPECT_FALSE(
+      Psnr(testing::MakeTestScene(8, 8), testing::MakeTestScene(8, 6)).ok());
 }
 
 }  // namespace

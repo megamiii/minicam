@@ -63,8 +63,8 @@ Status BilinearDemosaicStage::Process(Frame& frame) {
         rgb[horizontal_color] = horizontal;
         rgb[2 - horizontal_color] = vertical;  // kRed <-> kBlue.
       } else {
-        rgb[kGreen] = 0.25f * (px(x - 1, y) + px(x + 1, y) + px(x, y - 1) +
-                               px(x, y + 1));
+        rgb[kGreen] =
+            0.25f * (px(x - 1, y) + px(x + 1, y) + px(x, y - 1) + px(x, y + 1));
         rgb[2 - color] = 0.25f * (px(x - 1, y - 1) + px(x + 1, y - 1) +
                                   px(x - 1, y + 1) + px(x + 1, y + 1));
       }

@@ -33,8 +33,7 @@ TEST(WhiteBalanceTest, UniformGrayStaysGray) {
 
 TEST(WhiteBalanceTest, RemovesColorCastFromGrayScene) {
   // A gray card under warm light: red too strong, blue too weak.
-  Frame frame =
-      MakeRgbFrame(testing::MakeFlatImage(8, 8, {0.5f, 0.4f, 0.2f}));
+  Frame frame = MakeRgbFrame(testing::MakeFlatImage(8, 8, {0.5f, 0.4f, 0.2f}));
   ASSERT_TRUE(WhiteBalanceStage().Process(frame).ok());
   ExpectNeutral(frame.rgb, 1e-6f);
   // Gains after rescaling so the smallest is 1: R 0.8 -> 1, G 1 -> 1.25,
@@ -79,9 +78,9 @@ TEST(WhiteBalanceTest, ClippedPixelsAreIgnoredAndStayWhite) {
 TEST(WhiteBalanceTest, FromMetadataAppliesCameraGains) {
   Frame frame = MakeRgbFrame(testing::MakeFlatImage(4, 4, {0.2f, 0.4f, 0.1f}));
   frame.meta.wb_gains = {2.0f, 1.0f, 4.0f};
-  ASSERT_TRUE(
-      WhiteBalanceStage(WhiteBalanceStage::Mode::kFromMetadata).Process(frame)
-          .ok());
+  ASSERT_TRUE(WhiteBalanceStage(WhiteBalanceStage::Mode::kFromMetadata)
+                  .Process(frame)
+                  .ok());
   ExpectNeutral(frame.rgb, 1e-6f);
   EXPECT_FLOAT_EQ(frame.rgb.at(0, 0, 1), 0.4f);
 }

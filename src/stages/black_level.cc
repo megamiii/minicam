@@ -24,7 +24,8 @@ Status BlackLevelStage::Process(Frame& frame) {
     }
     black[i] = static_cast<float>(meta.black_level[i]);
     // Multiplying by a precomputed reciprocal is cheaper than dividing.
-    scale[i] = 1.0f / static_cast<float>(meta.white_level - meta.black_level[i]);
+    scale[i] =
+        1.0f / static_cast<float>(meta.white_level - meta.black_level[i]);
   }
 
   const int width = raw.width();

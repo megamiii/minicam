@@ -19,7 +19,8 @@ TEST(SyntheticRawTest, WritesSensorMetadata) {
   options.black_level = 100;
   options.white_level = 4000;
   Frame frame;
-  ASSERT_TRUE(MosaicLinearRgb(testing::MakeTestScene(8, 6), options, frame).ok());
+  ASSERT_TRUE(
+      MosaicLinearRgb(testing::MakeTestScene(8, 6), options, frame).ok());
 
   EXPECT_EQ(frame.raw.width(), 8);
   EXPECT_EQ(frame.raw.height(), 6);
