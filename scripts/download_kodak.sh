@@ -13,6 +13,11 @@ mkdir -p "$DEST"
 for i in $(seq -w 1 24); do
   name="kodim${i}.png"
   if [[ -s "$DEST/$name" ]]; then
+    # A saved web page renamed to .png would otherwise pass silently.
+    if [[ "$(head -c 4 "$DEST/$name" | tail -c 3)" != "PNG" ]]; then
+      echo "error: $DEST/$name exists but is not a PNG file" >&2
+      exit 1
+    fi
     echo "skip $name (already present)"
     continue
   fi
@@ -24,8 +29,12 @@ for i in $(seq -w 1 24); do
 
 The server refused the scripted download (it currently only serves browsers).
 Download the images manually instead:
-  1. Open https://r0k.us/graphics/kodak/ in a browser.
-  2. Save kodim01.png ... kodim24.png into $DEST
+  1. In a browser, open each image directly:
+       https://r0k.us/graphics/kodak/kodak/kodim01.png ... kodim24.png
+     (The links on https://r0k.us/graphics/kodak/ lead to HTML pages, so
+     "Save link as" there saves a page, not the image.)
+  2. Save each image (Ctrl+S, or right-click > "Save image as") into
+       $DEST
   3. Re-run this script to check that all 24 are present.
 EOF
     exit 1
