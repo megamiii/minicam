@@ -137,7 +137,8 @@ TEST(BoundedQueueTest, StressManyProducersAndConsumers) {
   }
   std::sort(all.begin(), all.end());
   ASSERT_EQ(all.size(), static_cast<size_t>(kProducers * kItemsPerProducer));
-  for (size_t i = 0; i < all.size(); ++i) ASSERT_EQ(all[i], static_cast<int>(i));
+  for (size_t i = 0; i < all.size(); ++i)
+    ASSERT_EQ(all[i], static_cast<int>(i));
 }
 
 }  // namespace

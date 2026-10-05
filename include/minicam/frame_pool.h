@@ -70,6 +70,9 @@ class FramePool {
   // already lent out can still be returned.
   void Close();
 
+  // Undoes Close(), so the pool can be used for another run.
+  void Reopen();
+
   size_t size() const { return frames_.size(); }
   size_t available() const;
 

@@ -77,6 +77,11 @@ void FramePool::Close() {
   frame_returned_.notify_all();
 }
 
+void FramePool::Reopen() {
+  std::lock_guard<std::mutex> lock(mu_);
+  closed_ = false;
+}
+
 size_t FramePool::available() const {
   std::lock_guard<std::mutex> lock(mu_);
   return free_.size();

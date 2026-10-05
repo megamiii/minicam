@@ -48,6 +48,7 @@ add_library(minicam_core
   src/io/synthetic.cc
   src/pipeline/frame_pool.cc
   src/pipeline/pipeline.cc
+  src/pipeline/threaded_pipeline.cc
   src/stages/black_level.cc
   src/stages/color_correction.cc
   src/stages/demosaic.cc
@@ -56,7 +57,8 @@ add_library(minicam_core
   src/stages/white_balance.cc
 )
 target_include_directories(minicam_core PUBLIC include)
-target_link_libraries(minicam_core PRIVATE minicam_warnings)
+find_package(Threads REQUIRED)
+target_link_libraries(minicam_core PUBLIC Threads::Threads PRIVATE minicam_warnings)
 
 # Image file I/O. OpenCV is used here only to decode and encode files.
 find_package(OpenCV REQUIRED COMPONENTS core imgcodecs)

@@ -25,11 +25,11 @@ add_executable(minicam_tests
   status_test.cc
   synthetic_test.cc
   test_scenes.cc
+  threaded_pipeline_test.cc
   tone_map_test.cc
   white_balance_test.cc
 )
-find_package(Threads REQUIRED)
-target_link_libraries(minicam_tests PRIVATE minicam_core minicam_warnings GTest::gtest_main Threads::Threads)
+target_link_libraries(minicam_tests PRIVATE minicam_core minicam_warnings GTest::gtest_main)
 
 include(GoogleTest)
 # Discover tests when ctest runs rather than at build time, so sanitizer

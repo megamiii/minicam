@@ -108,6 +108,9 @@ TEST(FramePoolTest, CloseWakesBlockedAcquire) {
   EXPECT_FALSE(pool.TryAcquire());
   held.Release();  // Lent-out frames can still come back after Close().
   EXPECT_EQ(pool.available(), 1u);
+
+  pool.Reopen();
+  EXPECT_TRUE(pool.TryAcquire());
 }
 
 // Frames flow producer -> queue -> consumers, as in the pipeline. The number
