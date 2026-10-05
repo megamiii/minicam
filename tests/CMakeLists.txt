@@ -13,7 +13,9 @@ add_executable(minicam_tests
   black_level_test.cc
   cfa_test.cc
   color_test.cc
+  demosaic_test.cc
   image_test.cc
+  metrics_test.cc
   pipeline_test.cc
   raw_file_test.cc
   status_test.cc

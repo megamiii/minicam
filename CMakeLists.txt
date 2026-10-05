@@ -42,11 +42,13 @@ endif()
 add_library(minicam_core
   src/core/cfa.cc
   src/core/color.cc
+  src/core/metrics.cc
   src/core/status.cc
   src/io/raw_file.cc
   src/io/synthetic.cc
   src/pipeline/pipeline.cc
   src/stages/black_level.cc
+  src/stages/demosaic.cc
 )
 target_include_directories(minicam_core PUBLIC include)
 target_link_libraries(minicam_core PRIVATE minicam_warnings)
@@ -61,6 +63,9 @@ target_include_directories(minicam_io SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
 
 add_executable(make_synthetic_raw tools/make_synthetic_raw.cc)
 target_link_libraries(make_synthetic_raw PRIVATE minicam_io minicam_warnings)
+
+add_executable(minicam tools/minicam_main.cc)
+target_link_libraries(minicam PRIVATE minicam_io minicam_warnings)
 
 if(MINICAM_BUILD_TESTS)
   enable_testing()
