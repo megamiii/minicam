@@ -6,9 +6,11 @@ minicam takes the raw output of a camera sensor and runs it through the stages a
 
 It is tested on real RAW bursts from the [Google HDR+ Burst Photography Dataset](https://hdrplusdata.org/), captured on Nexus and Pixel phones.
 
-<!-- TODO: add a hero image: RAW input on the left, minicam output on the right -->
+![RAW Bayer mosaic from a Pixel/Nexus phone (left) and minicam's output (right)](docs/images/hero.jpg)
 
-> **Status:** work in progress. Milestones 1–3 are done: all six ISP stages, a single-threaded and a thread-per-stage pipeline with bounded queues and a frame buffer pool, unit tests that pass under AddressSanitizer and ThreadSanitizer, and Kodak demosaicing results. Real DNG input (HDR+), benchmarks and CI come next. See [Progress](#progress).
+*Left: the black-level-corrected Bayer mosaic of one frame from the HDR+ dataset (burst `0006_20160722_115157_431`, frame 0), shown as grayscale: one color sample per pixel. Right: minicam's output with the default pipeline (Malvar demosaicing, gray-world AWB, the burst's `rgb2rgb.txt` color matrix, Reinhard tone mapping, bilateral denoising). Image from the HDR+ dataset, CC BY-SA 4.0.*
+
+> **Status:** work in progress. Milestones 1–4 are done: all six ISP stages, a single-threaded and a thread-per-stage pipeline with bounded queues and a frame buffer pool, real DNG input from the HDR+ dataset via LibRaw, unit tests that pass under AddressSanitizer and ThreadSanitizer, and Kodak demosaicing results. Benchmarks, optimization and CI come next. See [Progress](#progress).
 
 ## Features
 
@@ -80,13 +82,39 @@ The single-threaded `Pipeline` runs the same `Stage` objects one after another o
 
 ## Results
 
-<!-- TODO: add before/after images for each stage, using a burst from the HDR+ dataset -->
+All images below come from one real frame of the HDR+ dataset (burst `0006_20160722_115157_431`, frame 0: 4048×3036, BGGR, 10-bit, 0.42 ms exposure). Each comparison changes one stage and turns bilateral denoising off, so only that stage differs. Images from the HDR+ dataset, CC BY-SA 4.0.
 
-| Stage | Before | After |
-|---|---|---|
-| Demosaic (bilinear vs. Malvar) | _image_ | _image_ |
-| White balance | _image_ | _image_ |
-| Tone mapping | _image_ | _image_ |
+**Demosaicing.** Left to right: RAW mosaic, bilinear, Malvar-He-Cutler (crop of the cliff, enlarged 2× with nearest-neighbor).
+
+![Demosaicing crop: RAW mosaic, bilinear, Malvar](docs/images/demosaic.jpg)
+
+Malvar recovers clearly sharper needles and rock edges. On this single, noisy phone frame it also turns sensor noise into colored speckle, because its Laplacian correction is a high-pass filter (the same effect that costs it 1.2 dB in smooth regions on synthetic data). This is one reason HDR+ merges a burst *before* demosaicing, and why ISPs denoise early.
+
+**White balance.** Left: no white balance. Right: gray-world AWB.
+
+![White balance off vs gray-world](docs/images/white_balance.jpg)
+
+Without white balance the image is strongly green-cyan, because the sensor's green channel is the most sensitive. Gray-world estimated R/B gains of 2.13/1.47; the camera's own as-shot gains in the DNG are 2.02/1.63.
+
+**Tone mapping.** Left: auto exposure + clip + sRGB. Right: auto exposure + Reinhard + sRGB.
+
+![Clip vs Reinhard tone mapping](docs/images/tone_map.jpg)
+
+Clipping blows out the sunlit cliff and sand to flat white. Reinhard's curve rolls highlights off smoothly and keeps their detail, while leaving shadows and midtones almost unchanged.
+
+**Comparison with Google's HDR+ result.** Left: minicam (one frame, default pipeline). Right: Google's `final.jpg` for the same burst (2017 HDR+ pipeline).
+
+![minicam vs Google HDR+ final.jpg](docs/images/vs_google.jpg)
+
+Colors and white balance match closely. The differences are expected from what minicam does not do yet:
+- **Burst merging.** HDR+ aligns and merges the whole burst, which lowers noise.
+- **Local tone mapping.** Google's result keeps darker, more contrasty shadows; minicam's global auto exposure lifts them.
+- **Sharpening.** minicam does not sharpen.
+- **Lens shading correction.** The DNG frames are darker in the corners (vignetting, visible in the RAW preview above). The burst includes per-frame lens shading maps, which minicam does not apply yet.
+
+Two other observations from the three downloaded bursts:
+- On a golden-hour burst, gray-world AWB removed the warm evening light, which was real, while the camera's as-shot gains (`--wb metadata`) kept it, like Google's result. This is the classic failure mode of the gray-world assumption.
+- For burst `0006_20160727_200154_366`, Google's `final.jpg` shows a much narrower field of view than the DNG frames, although the DNGs have no crop tags; most likely the shot used digital zoom, which Google's pipeline applied. minicam renders the full sensor area.
 
 **Demosaicing quality** on the Kodak set (24 images mosaicked through RGGB, compared with the originals; mean CPSNR, 10-pixel border excluded)
 
@@ -156,11 +184,16 @@ cmake --build build -j
 
 ### Get test data
 
-The HDR+ dataset is large, so it is not stored in this repository. Download the subset (153 bursts, about 37 GiB) or only a few bursts with `gsutil`, following the instructions at [hdrplusdata.org](https://hdrplusdata.org/dataset.html).
+The HDR+ dataset is large (the curated subset is 153 bursts, about 37 GiB), so it is not stored in this repository. `download_hdrplus.sh` fetches only a few bursts from `gs://hdrplusdata/20171106_subset` into `data/hdrplus/`: the payload DNGs, `rgb2rgb.txt`, the lens shading maps, and Google's `final.jpg` and `reference_frame.txt` (about 30–80 MB per burst).
 
 ```bash
-./scripts/download_hdrplus.sh   # TODO: downloads a few sample bursts into data/
+./scripts/download_hdrplus.sh                 # the first 3 bursts (~158 MB)
+./scripts/download_hdrplus.sh -n 5            # the first 5 bursts
+./scripts/download_hdrplus.sh <burst name>    # specific bursts
+./scripts/download_hdrplus.sh --list          # list all 153 burst names
 ```
+
+It uses `gsutil` (Google Cloud SDK) as recommended by the dataset authors. The bucket allows anonymous reads, so if `gsutil` is not installed it falls back to plain HTTPS with `curl`.
 
 To generate synthetic RAW from any image:
 
@@ -174,29 +207,33 @@ The tool undoes the sRGB gamma, keeps one color per pixel in the chosen Bayer pa
 
 ### Run
 
-Currently `minicam` reads synthetic `.raw` files. For a single file it runs the single-threaded ISP and prints the time of each stage and the white balance gains it applied. For a directory it runs stream mode.
+`minicam` reads camera DNG files (via LibRaw) and minicam's own synthetic `.raw` files. For a single file it runs the single-threaded ISP and prints the time of each stage and the white balance gains it applied. If the input folder contains an HDR+ `rgb2rgb.txt`, that calibrated matrix replaces the DNG's own color matrix. Outputs are rotated upright according to the DNG Orientation tag.
 
 ```bash
-./build/minicam --input data/synthetic.raw --output out.png
+# One frame of an HDR+ burst
+./build/minicam --input data/hdrplus/<burst>/payload_N000.dng --output out.png
 
-# Every stage can be selected or turned off, e.g. for before/after images:
-./build/minicam --input data/synthetic.raw --output out.png     --demosaic bilinear|malvar --wb gray-world|metadata|off --ccm on|off     --tone reinhard|clip --exposure 0.5 --denoise on|off     --sigma-spatial 2 --sigma-range 0.08
+# Also save the RAW mosaic as a grayscale preview
+./build/minicam --input data/hdrplus/<burst>/payload_N000.dng --output out.png --raw-preview raw.png
+
+# Every stage can be selected or turned off, e.g. for before/after images
+./build/minicam --input data/synthetic.raw --output out.png \
+    --demosaic bilinear|malvar --wb gray-world|metadata|off --ccm on|off \
+    --tone reinhard|clip --exposure 0.5 --denoise on|off \
+    --sigma-spatial 2 --sigma-range 0.08
 ```
 
-Stream mode processes every `.raw` file in a directory as one frame sequence, by default with the thread-per-stage pipeline:
+Stream mode processes every `.dng`/`.raw` file in a folder (for example a whole HDR+ burst) as one frame sequence. By default it uses the thread-per-stage pipeline; the source thread decodes the next DNG while the stage threads process earlier frames.
 
 ```bash
-./build/minicam --input data/frames/ --output out/ --mode threaded     # or --mode sequential
+./build/minicam --input data/hdrplus/<burst>/ --output out/ --mode threaded     # or --mode sequential
 ```
 
-Planned (DNG input via LibRaw is not implemented yet):
+Comparison images like the ones in [Results](#results) are made with `side_by_side`, which uses OpenCV only to crop, resize and join images for display:
 
 ```bash
-# Process a single RAW/DNG file
-./build/minicam --input data/<burst>/payload_N000.dng --output out.png
-
-# Process a whole burst in stream mode
-./build/minicam --input data/<burst>/ --output out/ --stream
+./build/side_by_side out.jpg 480 out.png data/hdrplus/<burst>/results/final.jpg
+./build/side_by_side --crop 0.15,0.55,0.05,0.0375 crop.jpg 300 raw.png bilinear.png malvar.png
 ```
 
 ### Test and benchmark
@@ -232,16 +269,16 @@ minicam/
 ├── include/minicam/      # Public headers: Status, Image, Frame, Stage, Pipeline, ThreadedPipeline,
 │                         #   BoundedQueue, FramePool, CFA, color, metrics
 │   ├── stages/           # Black level, demosaic, white balance, CCM, tone map, denoise
-│   └── io/               # RAW container, synthetic RAW, image file I/O
+│   └── io/               # DNG reader, RAW container, synthetic RAW, image file I/O
 ├── src/
 │   ├── core/             # Status, CFA, color transfer, PSNR
 │   ├── stages/           # ISP stage implementations
 │   ├── pipeline/         # Pipeline, ThreadedPipeline, FramePool
-│   └── io/               # .raw reader/writer, synthetic RAW generator, OpenCV file I/O
-├── tools/                # minicam CLI, make_synthetic_raw, demosaic_eval
+│   └── io/               # LibRaw DNG reader, .raw reader/writer, synthetic RAW, OpenCV file I/O
+├── tools/                # minicam CLI, make_synthetic_raw, demosaic_eval, side_by_side
 ├── tests/                # GoogleTest unit tests and procedural test scenes
 ├── bench/                # (planned) Google Benchmark performance tests
-├── scripts/              # Dataset download (Kodak; HDR+ planned)
+├── scripts/              # Dataset downloads (HDR+, Kodak)
 └── docs/                 # README images and generated result tables
 ```
 
@@ -253,14 +290,15 @@ minicam/
 - [x] **Milestone 2:** Malvar-He-Cutler demosaicing, gray-world AWB, color correction matrix, auto exposure + Reinhard tone mapping + sRGB, bilateral denoising, full pipeline in the CLI with per-stage timing, `demosaic_eval` tool, 76 unit tests (also clean under ASan + UBSan)
   - [x] Kodak demosaicing results: Malvar +5.54 dB over bilinear (sRGB domain)
 - [x] **Milestone 3:** camera-HAL-style system: `BoundedQueue` (back-pressure, close/drain), `FramePool` (RAII handles, bounded memory), `ThreadedPipeline` (thread per stage, ordered output, clean shutdown, first-error propagation, cancel), CLI stream mode; 101 unit tests, clean under ASan + UBSan and TSan (threading tests also repeated 50× under TSan)
-- [ ] **Milestone 4:** real data: LibRaw DNG loader, HDR+ download script, stream mode
+- [x] **Milestone 4:** `download_hdrplus.sh` (gsutil, HTTPS fallback), LibRaw `DngReader` (CFA, per-tile black levels, white level, as-shot WB, color matrix, exposure, orientation), HDR+ `rgb2rgb.txt` sidecar matrices, DNG bursts in stream mode, upright output, before/after images and a comparison with Google's HDR+ result; 111 unit tests (DNG tests skip when the dataset is absent)
 - [ ] **Milestone 5:** benchmarks, optimizations, profiling
 - [ ] **Milestone 6:** CI, sanitizers in CI, clang-tidy, HOG face detection
 
 ## Roadmap
 
 - [ ] Burst merging (align and merge several frames, in the spirit of HDR+)
-- [ ] Lens shading correction
+- [ ] Lens shading correction (the HDR+ bursts include per-frame gain maps)
+- [ ] Local tone mapping and sharpening
 - [ ] SIMD versions of more stages
 - [ ] Android version using the Camera2 `RAW_SENSOR` format
 
@@ -275,7 +313,7 @@ minicam/
 
 ## Data and license
 
-Test images come from the [HDR+ Burst Photography Dataset](https://hdrplusdata.org/) by Google, released under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Any images from the dataset shown in this README are shared under the same license. If you use the dataset, cite:
+Test images come from the [HDR+ Burst Photography Dataset](https://hdrplusdata.org/) by Google, released under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). The images in `docs/images/` are derived from burst `0006_20160722_115157_431` of that dataset (processed by minicam, and Google's `final.jpg` for comparison) and are shared under the same license. If you use the dataset, cite:
 
 ```bibtex
 @article{hasinoff2016burst,
