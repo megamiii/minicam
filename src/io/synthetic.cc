@@ -58,4 +58,20 @@ Status MosaicLinearRgb(const Image<float>& linear_rgb,
   return OkStatus();
 }
 
+Status SampleCfa(const Image<float>& rgb, CfaPattern cfa, Frame& frame) {
+  if (rgb.empty() || rgb.channels() != 3) {
+    return InvalidArgumentError("expected a non-empty 3-channel RGB image");
+  }
+  frame.meta.cfa = cfa;
+  frame.bayer.Resize(rgb.width(), rgb.height(), 1);
+  for (int y = 0; y < rgb.height(); ++y) {
+    const float* in = rgb.row(y);
+    float* out = frame.bayer.row(y);
+    for (int x = 0; x < rgb.width(); ++x) {
+      out[x] = in[x * 3 + CfaColorAt(cfa, x, y)];
+    }
+  }
+  return OkStatus();
+}
+
 }  // namespace minicam

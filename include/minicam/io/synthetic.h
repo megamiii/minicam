@@ -39,6 +39,11 @@ struct SyntheticRawOptions {
 Status MosaicLinearRgb(const Image<float>& linear_rgb,
                        const SyntheticRawOptions& options, Frame& frame);
 
+// An ideal sensor: samples a 3-channel image through the CFA straight into
+// frame.bayer (float, no quantization, no noise, no black level) and sets
+// frame.meta.cfa. Used to evaluate demosaicing in isolation.
+Status SampleCfa(const Image<float>& rgb, CfaPattern cfa, Frame& frame);
+
 }  // namespace minicam
 
 #endif  // MINICAM_IO_SYNTHETIC_H_

@@ -12,7 +12,9 @@
 
 namespace minicam {
 
-StatusOr<Image<float>> LoadImageAsLinearRgb(const std::string& path) {
+namespace {
+
+StatusOr<Image<float>> LoadRgb(const std::string& path, bool linearize) {
   const cv::Mat bgr = cv::imread(path, cv::IMREAD_COLOR | cv::IMREAD_ANYDEPTH);
   if (bgr.empty()) return NotFoundError("cannot read image '" + path + "'");
 
@@ -35,11 +37,22 @@ StatusOr<Image<float>> LoadImageAsLinearRgb(const std::string& path) {
         const float v = bgr.depth() == CV_8U
                             ? bgr.ptr<uint8_t>(y)[x * 3 + src_c]
                             : bgr.ptr<uint16_t>(y)[x * 3 + src_c];
-        out[x * 3 + c] = SrgbToLinear(v / max_value);
+        out[x * 3 + c] =
+            linearize ? SrgbToLinear(v / max_value) : v / max_value;
       }
     }
   }
   return rgb;
+}
+
+}  // namespace
+
+StatusOr<Image<float>> LoadImageAsLinearRgb(const std::string& path) {
+  return LoadRgb(path, /*linearize=*/true);
+}
+
+StatusOr<Image<float>> LoadImageAsEncodedRgb(const std::string& path) {
+  return LoadRgb(path, /*linearize=*/false);
 }
 
 Status SaveRgbPng(const Image<float>& rgb, const std::string& path) {

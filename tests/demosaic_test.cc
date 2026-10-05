@@ -20,17 +20,10 @@ namespace {
 constexpr std::array<CfaPattern, 4> kAllPatterns = {
     CfaPattern::kRggb, CfaPattern::kBggr, CfaPattern::kGrbg, CfaPattern::kGbrg};
 
-// Builds frame.bayer by sampling a linear RGB image through a CFA (no
-// quantization or noise), so demosaic tests are independent of black level.
+// Ideal noise-free mosaic, so demosaic tests are independent of black level.
 Frame MosaicFloat(const Image<float>& rgb, CfaPattern cfa) {
   Frame frame;
-  frame.meta.cfa = cfa;
-  frame.bayer.Resize(rgb.width(), rgb.height(), 1);
-  for (int y = 0; y < rgb.height(); ++y) {
-    for (int x = 0; x < rgb.width(); ++x) {
-      frame.bayer.at(x, y) = rgb.at(x, y, CfaColorAt(cfa, x, y));
-    }
-  }
+  EXPECT_TRUE(SampleCfa(rgb, cfa, frame).ok());
   return frame;
 }
 

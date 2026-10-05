@@ -14,8 +14,7 @@ namespace {
 static_assert(std::endian::native == std::endian::little,
               "the raw file reader assumes a little-endian host");
 
-constexpr std::array<char, 8> kMagic = {'M', 'C', 'A', 'M',
-                                        'R', 'A', 'W', '1'};
+constexpr std::array<char, 8> kMagic = {'M', 'C', 'A', 'M', 'R', 'A', 'W', '1'};
 constexpr uint32_t kMaxDimension = 1u << 16;
 
 template <typename T>

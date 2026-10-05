@@ -71,6 +71,9 @@ target_link_libraries(make_synthetic_raw PRIVATE minicam_io minicam_warnings)
 add_executable(minicam tools/minicam_main.cc)
 target_link_libraries(minicam PRIVATE minicam_io minicam_warnings)
 
+add_executable(demosaic_eval tools/demosaic_eval.cc)
+target_link_libraries(demosaic_eval PRIVATE minicam_io minicam_warnings)
+
 if(MINICAM_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
