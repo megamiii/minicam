@@ -8,6 +8,8 @@ It is tested on real RAW bursts from the [Google HDR+ Burst Photography Dataset]
 
 <!-- TODO: add a hero image: RAW input on the left, minicam output on the right -->
 
+> **Status:** work in progress. Milestone 1 is done: project skeleton, a single-threaded pipeline, black-level correction, bilinear demosaicing and synthetic RAW generation, all tested. See [Progress](#progress).
+
 ## Features
 
 - **ISP stages implemented from scratch** (no OpenCV processing calls):
@@ -52,7 +54,8 @@ It is tested on real RAW bursts from the [Google HDR+ Burst Photography Dataset]
 - **Thread per stage:** _why this model, and the trade-off versus a thread pool over image tiles_
 - **Bounded queues:** _how they provide back-pressure when a stage is slow_
 - **Buffer pool:** _why per-frame allocation hurts latency, and how buffers are recycled_
-- **Stage interface:** _how stages can be added, removed or reordered_
+- **Stage interface:** every stage implements `Stage::Process(Frame&)` and talks to other stages only through the `Frame` it is given. A `Frame` holds the metadata and one buffer per representation (`raw` uint16 mosaic, `bayer` normalized float mosaic, `rgb` linear float image). Because no stage knows about any other, a `Pipeline` is just an ordered `std::vector<std::unique_ptr<Stage>>`, and adding, removing or reordering stages only changes that list. The one rule is that a stage's input buffer must have been produced by an earlier stage; if it was not, the stage returns an error.
+- **Errors without exceptions:** following the Google C++ Style Guide, nothing throws. Stages return a `Status`, and the pipeline stops at the first failure and reports the frame id and stage name, for example `frame 7, stage 'demosaic_bilinear': expected a 1-channel Bayer mosaic`.
 
 ## Results
 
@@ -70,6 +73,8 @@ It is tested on real RAW bursts from the [Google HDR+ Burst Photography Dataset]
 |---|---|
 | Bilinear | _TODO_ |
 | Malvar-He-Cutler | _TODO_ |
+
+So far, measured only on the procedural test scene used in the unit tests (256×192, 10-bit, no noise, 2-pixel border excluded), bilinear demosaicing scores **70.76 dB** on the smooth gradient region and **20.30 dB** on the full scene. The smooth-region score matches the theoretical limit set by 10-bit quantization (about 70.4 dB for 959 levels), so bilinear is effectively exact on smooth content. The full-scene score is dominated by aliasing on 3-pixel-wide stripes, which is the weakness Malvar-He-Cutler is meant to reduce.
 
 ## Performance
 
@@ -94,6 +99,14 @@ Measured with Google Benchmark on _TODO: CPU, cores, RAM, OS, compiler_. Image s
 - Linux, CMake 3.20+, a C++20 compiler (GCC 11+ or Clang 14+)
 - LibRaw, OpenCV (I/O and display only), GoogleTest, Google Benchmark
 
+On Ubuntu 22.04:
+
+```bash
+sudo apt install build-essential cmake ninja-build pkg-config libraw-dev libopencv-dev
+```
+
+GoogleTest (and later Google Benchmark) are downloaded at a pinned version by CMake, so local builds and CI use the same version.
+
 ### Build
 
 ```bash
@@ -115,9 +128,21 @@ To generate synthetic RAW from any image:
 
 ```bash
 ./build/make_synthetic_raw input.jpg data/synthetic.raw
+# Optional: CFA pattern and sensor noise (variance = shot * signal + read^2)
+./build/make_synthetic_raw input.jpg data/noisy.raw --cfa RGGB --shot-noise 0.002 --read-noise 0.01 --seed 1
 ```
 
+The tool undoes the sRGB gamma, keeps one color per pixel in the chosen Bayer pattern, and stores 10-bit values with black level 64 and white level 1023 in a small `.raw` container that also holds the frame metadata.
+
 ### Run
+
+Currently `minicam` reads synthetic `.raw` files and runs black level + bilinear demosaicing. There is no tone mapping stage yet, so the output PNG holds linear values and looks darker than a normal photo.
+
+```bash
+./build/minicam --input data/synthetic.raw --output out.png
+```
+
+Planned (DNG input via LibRaw and stream mode are not implemented yet):
 
 ```bash
 # Process a single RAW/DNG file
@@ -136,21 +161,35 @@ ctest --test-dir build --output-on-failure
 
 ## Project structure
 
-<!-- TODO: update to match the final layout -->
+<!-- TODO: update as bench/, scripts/ and CI are added -->
 
 ```
 minicam/
-├── include/minicam/      # Public headers (Frame, Stage, Pipeline, BufferPool, BoundedQueue)
+├── include/minicam/      # Public headers: Status, Image, Frame, Stage, Pipeline, CFA, color, metrics
+│   ├── stages/           # Stage headers (black level, demosaic, ...)
+│   └── io/               # RAW container, synthetic RAW, image file I/O
 ├── src/
-│   ├── stages/           # Black level, demosaic, white balance, CCM, tone map, denoise
-│   ├── pipeline/         # Threading, queues, buffer pool
-│   └── io/               # LibRaw loader, synthetic RAW generator, PNG writer
-├── tests/                # GoogleTest unit and thread-safety tests
-├── bench/                # Google Benchmark performance tests
-├── scripts/              # Dataset download and helper scripts
-├── docs/images/          # README images
-└── .github/workflows/    # CI
+│   ├── core/             # Status, CFA, color transfer, PSNR
+│   ├── stages/           # ISP stage implementations
+│   ├── pipeline/         # Pipeline (threading, queues and buffer pool come later)
+│   └── io/               # .raw reader/writer, synthetic RAW generator, OpenCV file I/O
+├── tools/                # minicam CLI and make_synthetic_raw
+├── tests/                # GoogleTest unit tests and procedural test scenes
+├── bench/                # (planned) Google Benchmark performance tests
+├── scripts/              # (planned) dataset download
+└── docs/images/          # README images
 ```
+
+`minicam_core` (stages, pipeline, synthetic RAW) has no OpenCV dependency. OpenCV is linked only into `minicam_io`, which decodes and encodes image files.
+
+## Progress
+
+- [x] **Milestone 1:** CMake skeleton, `Status`/`Image`/`Frame`/`Stage`, single-threaded `Pipeline`, black-level stage, bilinear demosaicing, synthetic RAW tool, PSNR metric, 43 unit tests (also clean under AddressSanitizer + UndefinedBehaviorSanitizer)
+- [ ] **Milestone 2:** remaining ISP stages (Malvar demosaic, gray-world AWB, CCM, tone mapping, bilateral denoise)
+- [ ] **Milestone 3:** camera-HAL-style system: bounded queues, buffer pool, thread-per-stage pipeline, shutdown and error propagation
+- [ ] **Milestone 4:** real data: LibRaw DNG loader, HDR+ download script, stream mode
+- [ ] **Milestone 5:** benchmarks, optimizations, profiling
+- [ ] **Milestone 6:** CI, sanitizers in CI, clang-tidy, HOG face detection
 
 ## Roadmap
 
