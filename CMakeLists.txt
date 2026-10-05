@@ -49,6 +49,7 @@ add_library(minicam_core
   src/pipeline/pipeline.cc
   src/stages/black_level.cc
   src/stages/demosaic.cc
+  src/stages/white_balance.cc
 )
 target_include_directories(minicam_core PUBLIC include)
 target_link_libraries(minicam_core PRIVATE minicam_warnings)
