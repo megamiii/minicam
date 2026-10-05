@@ -15,4 +15,15 @@ float LinearToSrgb(float linear) {
   return 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
 }
 
+SrgbEncodeTable::SrgbEncodeTable() {
+  for (int i = 0; i <= kSize; ++i) {
+    table_[i] = LinearToSrgb(static_cast<float>(i) / static_cast<float>(kSize));
+  }
+}
+
+const SrgbEncodeTable& SrgbEncodeTable::Get() {
+  static const SrgbEncodeTable table;
+  return table;
+}
+
 }  // namespace minicam

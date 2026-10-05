@@ -149,6 +149,29 @@ BENCHMARK_CAPTURE(BM_Stage, denoise_bilateral, 5, Make<BilateralDenoiseStage>())
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime();
 
+// Tone mapping variants for the optimization record.
+std::function<std::unique_ptr<Stage>()> MakeToneMap(
+    ToneMapOptions::Implementation implementation, int num_threads) {
+  return [=] {
+    ToneMapOptions options;
+    options.implementation = implementation;
+    options.num_threads = num_threads;
+    return std::make_unique<ToneMapStage>(options);
+  };
+}
+BENCHMARK_CAPTURE(BM_Stage, tone_map_reference_1thread, 4,
+                  MakeToneMap(ToneMapOptions::Implementation::kReference, 1))
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(BM_Stage, tone_map_fast_1thread, 4,
+                  MakeToneMap(ToneMapOptions::Implementation::kFast, 1))
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(BM_Stage, tone_map_fast_all_threads, 4,
+                  MakeToneMap(ToneMapOptions::Implementation::kFast, 0))
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+
 // Bilateral variants for the optimization record.
 std::function<std::unique_ptr<Stage>()> MakeBilateral(
     BilateralOptions::Implementation implementation, int num_threads) {

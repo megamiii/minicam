@@ -1,5 +1,9 @@
 #include "minicam/color.h"
 
+#include <algorithm>
+#include <cmath>
+#include <iostream>
+
 #include <gtest/gtest.h>
 
 namespace minicam {
@@ -22,6 +26,21 @@ TEST(ColorTest, RoundTrip) {
     const float v = i / 100.0f;
     EXPECT_NEAR(LinearToSrgb(SrgbToLinear(v)), v, 1e-5f);
   }
+}
+
+TEST(SrgbEncodeTableTest, MatchesExactCurveWithinOnePercentOfAnOutputStep) {
+  const SrgbEncodeTable& table = SrgbEncodeTable::Get();
+  float max_error = 0.0f;
+  // Dense sweep, including points between table entries.
+  for (int i = 0; i <= 1000000; ++i) {
+    const float v = static_cast<float>(i) / 1000000.0f;
+    max_error =
+        std::max(max_error, std::abs(table.Encode(v) - LinearToSrgb(v)));
+  }
+  std::cout << "sRGB table max error: " << max_error << "\n";
+  EXPECT_LT(max_error, 0.01f / 255.0f);
+  EXPECT_FLOAT_EQ(table.Encode(0.0f), 0.0f);
+  EXPECT_NEAR(table.Encode(1.0f), 1.0f, 1e-6f);
 }
 
 }  // namespace

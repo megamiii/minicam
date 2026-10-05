@@ -31,6 +31,18 @@ struct ToneMapOptions {
   // kReinhard: the white point is this percentile of the exposed luminance
   // (at least 1.0), so a few hot pixels do not set it.
   float white_percentile = 0.995f;
+
+  enum class Implementation {
+    // Straightforward version (pow() per channel, double log per pixel),
+    // kept as the correctness reference and the "before" of the
+    // optimization.
+    kReference,
+    // sRGB encoding from SrgbEncodeTable, float log, row-band threads.
+    kFast,
+  };
+  Implementation implementation = Implementation::kFast;
+  // Threads for the per-pixel passes; 0 means one per hardware thread.
+  int num_threads = 0;
 };
 
 // Converts frame.rgb from linear sRGB (any range >= 0) to display-ready,
@@ -57,9 +69,15 @@ class ToneMapStage final : public Stage {
   Status Process(Frame& frame) override;
 
  private:
+  Status ProcessReference(Image<float>& rgb);
+  Status ProcessFast(Image<float>& rgb);
+
   ToneMapOptions options_;
   // Scratch space for the white-point percentile, reused across frames.
   std::vector<float> luminance_;
+  // Per-row sums of log luminance (kFast). Summing rows in a fixed order
+  // makes the result independent of the thread count.
+  std::vector<double> row_log_sums_;
 };
 
 }  // namespace minicam

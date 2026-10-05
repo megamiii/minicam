@@ -1,0 +1,24 @@
+2026-10-06T08:52:46+09:00
+Running ./minicam_bench
+Run on (8 X 2304.01 MHz CPU s)
+CPU Caches:
+  L1 Data 32 KiB (x4)
+  L1 Instruction 32 KiB (x4)
+  L2 Unified 256 KiB (x4)
+  L3 Unified 8192 KiB (x1)
+Load Average: 0.62, 1.01, 1.11
+---------------------------------------------------------------------------------------------------------------
+Benchmark                                                     Time             CPU   Iterations UserCounters...
+---------------------------------------------------------------------------------------------------------------
+BM_Stage/tone_map_fast_1thread/real_time_mean               424 ms          423 ms            3 MP/s=29.0429/s
+BM_Stage/tone_map_fast_1thread/real_time_median             417 ms          414 ms            3 MP/s=29.4701/s
+BM_Stage/tone_map_fast_1thread/real_time_stddev            21.6 ms         22.1 ms            3 MP/s=1.45166/s
+BM_Stage/tone_map_fast_1thread/real_time_cv                5.10 %          5.24 %             3 MP/s=5.00%
+BM_Stage/tone_map_reference_1thread/real_time_mean          949 ms          949 ms            3 MP/s=13.0126/s
+BM_Stage/tone_map_reference_1thread/real_time_median        983 ms          982 ms            3 MP/s=12.5083/s
+BM_Stage/tone_map_reference_1thread/real_time_stddev       76.3 ms         76.3 ms            3 MP/s=1.0939/s
+BM_Stage/tone_map_reference_1thread/real_time_cv           8.04 %          8.04 %             3 MP/s=8.41%
+BM_Stage/tone_map_fast_all_threads/real_time_mean           168 ms          127 ms            3 MP/s=73.5446/s
+BM_Stage/tone_map_fast_all_threads/real_time_median         161 ms          121 ms            3 MP/s=76.4443/s
+BM_Stage/tone_map_fast_all_threads/real_time_stddev        18.5 ms         16.8 ms            3 MP/s=7.65875/s
+BM_Stage/tone_map_fast_all_threads/real_time_cv           10.99 %         13.17 %             3 MP/s=10.41%

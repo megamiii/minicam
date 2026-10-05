@@ -1,5 +1,9 @@
 #include "minicam/stages/tone_map.h"
 
+#include <algorithm>
+#include <cmath>
+#include <iostream>
+
 #include <gtest/gtest.h>
 
 #include "minicam/color.h"
@@ -99,6 +103,59 @@ TEST(ToneMapTest, LowContrastSceneIsNotStretchedToWhite) {
   // Auto exposure maps it to the key 0.18. With the white point clamped to
   // 1, the curve leaves it unchanged: 0.18 (1 + 0.18) / (1 + 0.18) = 0.18.
   EXPECT_NEAR(frame.rgb.at(3, 3, 1), LinearToSrgb(0.18f), 2e-3f);
+}
+
+Image<float> ToneMap(const Image<float>& input, const ToneMapOptions& options) {
+  Frame frame = MakeRgbFrame(input);
+  EXPECT_TRUE(ToneMapStage(options).Process(frame).ok());
+  return frame.rgb;
+}
+
+// High dynamic range input, so both the curve and clipping are exercised.
+Image<float> MakeHdrScene() {
+  Image<float> scene = testing::MakeTestScene(160, 120);
+  for (int y = 0; y < 30; ++y) {
+    for (int x = 0; x < 160; ++x) {
+      for (int c = 0; c < 3; ++c) scene.at(x, y, c) *= 20.0f;
+    }
+  }
+  return scene;
+}
+
+TEST(ToneMapTest, FastMatchesReference) {
+  for (auto op :
+       {ToneMapOptions::Operator::kReinhard, ToneMapOptions::Operator::kClip}) {
+    ToneMapOptions reference;
+    reference.op = op;
+    reference.implementation = ToneMapOptions::Implementation::kReference;
+    ToneMapOptions fast = reference;
+    fast.implementation = ToneMapOptions::Implementation::kFast;
+
+    const Image<float> a = ToneMap(MakeHdrScene(), reference);
+    const Image<float> b = ToneMap(MakeHdrScene(), fast);
+    float max_diff = 0.0f;
+    for (size_t i = 0; i < a.size(); ++i) {
+      max_diff = std::max(max_diff, std::abs(a.pixels()[i] - b.pixels()[i]));
+    }
+    std::cout << "tone map fast vs reference: max abs diff " << max_diff
+              << "\n";
+    EXPECT_LT(max_diff, 0.05f / 255.0f);
+  }
+}
+
+TEST(ToneMapTest, ThreadCountDoesNotChangeTheResult) {
+  ToneMapOptions one;
+  one.num_threads = 1;
+  const Image<float> expected = ToneMap(MakeHdrScene(), one);
+  for (int threads : {2, 3, 7, 0}) {
+    ToneMapOptions many = one;
+    many.num_threads = threads;
+    const Image<float> got = ToneMap(MakeHdrScene(), many);
+    for (size_t i = 0; i < got.size(); ++i) {
+      ASSERT_EQ(got.pixels()[i], expected.pixels()[i])
+          << threads << " threads, element " << i;
+    }
+  }
 }
 
 TEST(ToneMapTest, RejectsMissingRgb) {
