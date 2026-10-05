@@ -1,0 +1,18 @@
+# Build output
+build*/
+cmake-build-*/
+out/
+
+# Datasets: the HDR+ data is CC BY-SA 4.0 and large; it must never be committed.
+data/
+*.dng
+*.DNG
+
+# Editor / OS
+.vscode/
+.idea/
+.cache/
+compile_commands.json
+*.swp
+.DS_Store
+Thumbs.db

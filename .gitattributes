@@ -1,0 +1,4 @@
+# Code is built and run on Linux; keep LF endings even when checked out on Windows.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
