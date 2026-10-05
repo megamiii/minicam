@@ -8,7 +8,7 @@ It is tested on real RAW bursts from the [Google HDR+ Burst Photography Dataset]
 
 <!-- TODO: add a hero image: RAW input on the left, minicam output on the right -->
 
-> **Status:** work in progress. Milestones 1 and 2 are done: all six ISP stages run in a single-threaded pipeline on synthetic RAW, are unit-tested, and demosaicing is benchmarked on the Kodak set. The multi-threaded camera-HAL design and real DNG input come next. See [Progress](#progress).
+> **Status:** work in progress. Milestones 1–3 are done: all six ISP stages, a single-threaded and a thread-per-stage pipeline with bounded queues and a frame buffer pool, unit tests that pass under AddressSanitizer and ThreadSanitizer, and Kodak demosaicing results. Real DNG input (HDR+), benchmarks and CI come next. See [Progress](#progress).
 
 ## Features
 
@@ -36,24 +36,41 @@ It is tested on real RAW bursts from the [Google HDR+ Burst Photography Dataset]
 
 ## Architecture
 
-<!-- TODO: replace with the final diagram -->
-
 ```
- RAW input ──► [Black Level] ──► [Demosaic] ──► [White Balance] ──► [CCM] ──► [Tone Map] ──► [Denoise] ──► PNG output
-     ▲            thread 1         thread 2         thread 3       thread 4     thread 5       thread 6        │
-     │                                                                                                        │
-     └──────────────────────────── frame buffers returned to the pool ◄───────────────────────────────────────┘
+ ┌──────────────────────────── FramePool (N preallocated frames) ◄────────────────────────────────┐
+ │ Acquire (blocks when all frames are in flight)                         handle destroyed → return │
+ ▼                                                                                                  │
+ source ─q0─► Black Level ─q1─► Demosaic ─q2─► White Balance ─q3─► CCM ─q4─► Tone Map ─q5─► Denoise ─q6─► sink
+ thread        thread            thread         thread              thread    thread          thread        thread
+ (read RAW,                                                                                       (write PNG)
+  stamp id + time)
 
- Stages are connected by bounded, thread-safe queues. Each frame carries its metadata through the pipeline.
+ q0..q6: BoundedQueue<FramePool::Handle>, capacity 2 by default.
+ Each Frame carries its metadata (frame id, timestamp, exposure, black/white levels, CFA, WB gains, color matrix).
 ```
+
+The single-threaded `Pipeline` runs the same `Stage` objects one after another on one frame. `ThreadedPipeline` runs them on the threads above. Both produce bit-identical output, and a unit test checks this.
 
 **Design decisions**
 
-<!-- TODO: fill in as you build. Explain each choice in your own words. -->
-
-- **Thread per stage:** _why this model, and the trade-off versus a thread pool over image tiles_
-- **Bounded queues:** _how they provide back-pressure when a stage is slow_
-- **Buffer pool:** _why per-frame allocation hurts latency, and how buffers are recycled_
+- **Thread per stage:** it works like an assembly line. While the denoiser works on frame *n*, the tone mapper works on frame *n+1* and the demosaicer on frame *n+2*.
+  - Throughput is limited by the *slowest* stage instead of the sum of all stages.
+  - Frame order is preserved for free, because each stage is a single thread reading a FIFO queue. A thread pool, where any worker takes any frame, would need a reorder step at the end.
+  - Each `Stage` object is only ever touched by one thread, so stages can keep scratch buffers without locks.
+  - The trade-off: per-stage threads do not reduce the *latency* of a single frame, and a stage that dominates the run time (here the bilateral filter) caps the gain. Splitting one stage's image into tiles processed by several threads does reduce latency. The two approaches combine: tiling the slowest stage is planned in the Performance milestone.
+- **Bounded queues:** each queue has a small fixed capacity (2 by default).
+  - When a downstream stage is slow, its input queue fills, and `Push` blocks the stage before it. That pressure propagates back to the source, so the pipeline settles at the speed of its slowest stage instead of piling up frames, memory and latency (back-pressure).
+  - Implemented as a monitor: one mutex, two condition variables (`not_full`, `not_empty`) waited on with predicates to handle spurious wake-ups, and a ring buffer allocated once.
+  - `Close()` makes `Push` fail while `Pop` still drains the remaining items. That is what lets end-of-stream travel down the pipeline without losing frames.
+- **Buffer pool:** a 12 MP frame holds about 216 MB of buffers (`uint16` RAW, float mosaic, float RGB). Allocating that per frame costs time and causes latency spikes: glibc maps and unmaps large blocks, and the kernel zeroes every new page on first touch.
+  - `FramePool` allocates N frames once and lends them out as move-only RAII `Handle`s. A handle returns its frame to the pool when destroyed, so frames come back on every path, including errors and frames left in queues after an abort.
+  - Buffers keep their capacity, so reused frames never reallocate. The free list is LIFO, so the most recently used (cache-warm) frame is reused first.
+  - When all frames are in flight, `Acquire()` blocks, which caps memory, like `max_buffers` in an Android Camera HAL3 stream. The default N is the number of stages + 2.
+- **Shutdown and errors:**
+  - *End of stream:* the source closes `q0`, and each stage drains its input, closes its output and exits, so every frame is processed.
+  - *Error:* the first error from the source, a stage or the sink is stored (labeled, e.g. `frame 5, stage 'fail_at': boom`). The pool and all queues are closed, so blocked threads wake up and exit, and `Run()` returns that error after joining every thread.
+  - `Cancel()` takes the same path with a `CANCELLED` status.
+  - Tests check that every frame is back in the pool afterwards and that nothing deadlocks.
 - **Stage interface:** every stage implements `Stage::Process(Frame&)` and talks to other stages only through the `Frame` it is given. A `Frame` holds the metadata and one buffer per representation (`raw` uint16 mosaic, `bayer` normalized float mosaic, `rgb` linear float image). Because no stage knows about any other, a `Pipeline` is just an ordered `std::vector<std::unique_ptr<Stage>>`, and adding, removing or reordering stages only changes that list. The one rule is that a stage's input buffer must have been produced by an earlier stage; if it was not, the stage returns an error.
 - **Stage order:** black level → demosaic → white balance → CCM → tone map → denoise.
   - The CCM is a change of color basis, so it runs on linear data, before the tone curve.
@@ -157,7 +174,7 @@ The tool undoes the sRGB gamma, keeps one color per pixel in the chosen Bayer pa
 
 ### Run
 
-Currently `minicam` reads synthetic `.raw` files and runs the full single-threaded ISP. It prints the time of each stage and the white balance gains it applied.
+Currently `minicam` reads synthetic `.raw` files. For a single file it runs the single-threaded ISP and prints the time of each stage and the white balance gains it applied. For a directory it runs stream mode.
 
 ```bash
 ./build/minicam --input data/synthetic.raw --output out.png
@@ -166,7 +183,13 @@ Currently `minicam` reads synthetic `.raw` files and runs the full single-thread
 ./build/minicam --input data/synthetic.raw --output out.png     --demosaic bilinear|malvar --wb gray-world|metadata|off --ccm on|off     --tone reinhard|clip --exposure 0.5 --denoise on|off     --sigma-spatial 2 --sigma-range 0.08
 ```
 
-Planned (DNG input via LibRaw and stream mode are not implemented yet):
+Stream mode processes every `.raw` file in a directory as one frame sequence, by default with the thread-per-stage pipeline:
+
+```bash
+./build/minicam --input data/frames/ --output out/ --mode threaded     # or --mode sequential
+```
+
+Planned (DNG input via LibRaw is not implemented yet):
 
 ```bash
 # Process a single RAW/DNG file
@@ -181,6 +204,15 @@ Planned (DNG input via LibRaw and stream mode are not implemented yet):
 ```bash
 ctest --test-dir build --output-on-failure
 ./build/minicam_bench   # planned
+
+# Sanitizer builds
+cmake -B build-asan -DCMAKE_BUILD_TYPE=Debug -DMINICAM_SANITIZER=address && cmake --build build-asan -j
+ctest --test-dir build-asan --output-on-failure
+cmake -B build-tsan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMINICAM_SANITIZER=thread && cmake --build build-tsan -j
+setarch "$(uname -m)" -R ctest --test-dir build-tsan --output-on-failure
+```
+
+`setarch -R` disables address-space randomization for the test process only. GCC 11's ThreadSanitizer runtime fails with `unexpected memory mapping` on recent kernels, which randomize more address bits than it expects.
 
 # Demosaicing quality on the Kodak set (24 PNGs, ~15 MB, into data/kodak/)
 ./scripts/download_kodak.sh
@@ -197,13 +229,14 @@ ctest --test-dir build --output-on-failure
 
 ```
 minicam/
-├── include/minicam/      # Public headers: Status, Image, Frame, Stage, Pipeline, CFA, color, metrics
+├── include/minicam/      # Public headers: Status, Image, Frame, Stage, Pipeline, ThreadedPipeline,
+│                         #   BoundedQueue, FramePool, CFA, color, metrics
 │   ├── stages/           # Black level, demosaic, white balance, CCM, tone map, denoise
 │   └── io/               # RAW container, synthetic RAW, image file I/O
 ├── src/
 │   ├── core/             # Status, CFA, color transfer, PSNR
 │   ├── stages/           # ISP stage implementations
-│   ├── pipeline/         # Pipeline (threading, queues and buffer pool come later)
+│   ├── pipeline/         # Pipeline, ThreadedPipeline, FramePool
 │   └── io/               # .raw reader/writer, synthetic RAW generator, OpenCV file I/O
 ├── tools/                # minicam CLI, make_synthetic_raw, demosaic_eval
 ├── tests/                # GoogleTest unit tests and procedural test scenes
@@ -219,7 +252,7 @@ minicam/
 - [x] **Milestone 1:** CMake skeleton, `Status`/`Image`/`Frame`/`Stage`, single-threaded `Pipeline`, black-level stage, bilinear demosaicing, synthetic RAW tool, PSNR metric, 43 unit tests (also clean under AddressSanitizer + UndefinedBehaviorSanitizer)
 - [x] **Milestone 2:** Malvar-He-Cutler demosaicing, gray-world AWB, color correction matrix, auto exposure + Reinhard tone mapping + sRGB, bilateral denoising, full pipeline in the CLI with per-stage timing, `demosaic_eval` tool, 76 unit tests (also clean under ASan + UBSan)
   - [x] Kodak demosaicing results: Malvar +5.54 dB over bilinear (sRGB domain)
-- [ ] **Milestone 3:** camera-HAL-style system: bounded queues, buffer pool, thread-per-stage pipeline, shutdown and error propagation
+- [x] **Milestone 3:** camera-HAL-style system: `BoundedQueue` (back-pressure, close/drain), `FramePool` (RAII handles, bounded memory), `ThreadedPipeline` (thread per stage, ordered output, clean shutdown, first-error propagation, cancel), CLI stream mode; 101 unit tests, clean under ASan + UBSan and TSan (threading tests also repeated 50× under TSan)
 - [ ] **Milestone 4:** real data: LibRaw DNG loader, HDR+ download script, stream mode
 - [ ] **Milestone 5:** benchmarks, optimizations, profiling
 - [ ] **Milestone 6:** CI, sanitizers in CI, clang-tidy, HOG face detection
