@@ -1,5 +1,6 @@
 #include "minicam/stages/denoise.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
@@ -115,6 +116,58 @@ TEST(BilateralDenoiseTest, ReusesItsBuffersAcrossFrames) {
   // Two buffers alternate (ping-pong), so after an even number of further
   // frames the original one is back.
   EXPECT_EQ(frame.rgb.pixels().data(), first);
+}
+
+Image<float> Filter(const Image<float>& input,
+                    const BilateralOptions& options) {
+  Frame frame = MakeRgbFrame(input);
+  EXPECT_TRUE(BilateralDenoiseStage(options).Process(frame).ok());
+  return frame.rgb;
+}
+
+// The lookup table only approximates exp(); it must stay visually identical.
+TEST(BilateralDenoiseTest, LookupTableMatchesReference) {
+  const Image<float> noisy =
+      AddNoise(testing::MakeTestScene(160, 120), 0.03f, /*seed=*/4);
+  BilateralOptions reference;
+  reference.implementation = BilateralOptions::Implementation::kReference;
+  BilateralOptions lut;
+  lut.implementation = BilateralOptions::Implementation::kLookupTable;
+
+  const Image<float> a = Filter(noisy, reference);
+  const Image<float> b = Filter(noisy, lut);
+  float max_diff = 0.0f;
+  for (size_t i = 0; i < a.size(); ++i) {
+    max_diff = std::max(max_diff, std::abs(a.pixels()[i] - b.pixels()[i]));
+  }
+  auto psnr = Psnr(a, b);
+  ASSERT_TRUE(psnr.ok());
+  std::cout << "lookup table vs reference: max abs diff " << max_diff
+            << ", PSNR " << *psnr << " dB\n";
+  EXPECT_LT(max_diff, 0.5f / 255.0f);  // Below half an 8-bit output step.
+  EXPECT_GT(*psnr, 70.0);
+}
+
+// Bands are independent, so the thread count must not change any pixel.
+TEST(BilateralDenoiseTest, ThreadCountDoesNotChangeTheResult) {
+  const Image<float> noisy =
+      AddNoise(testing::MakeTestScene(97, 61), 0.03f, /*seed=*/5);
+  for (auto impl : {BilateralOptions::Implementation::kReference,
+                    BilateralOptions::Implementation::kLookupTable}) {
+    BilateralOptions one;
+    one.implementation = impl;
+    one.num_threads = 1;
+    const Image<float> expected = Filter(noisy, one);
+    for (int threads : {2, 3, 8, 0}) {
+      BilateralOptions many = one;
+      many.num_threads = threads;
+      const Image<float> got = Filter(noisy, many);
+      for (size_t i = 0; i < got.size(); ++i) {
+        ASSERT_EQ(got.pixels()[i], expected.pixels()[i])
+            << threads << " threads, element " << i;
+      }
+    }
+  }
 }
 
 TEST(BilateralDenoiseTest, RejectsInvalidOptions) {

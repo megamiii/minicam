@@ -1,0 +1,24 @@
+2026-10-06T08:45:22+09:00
+Running ./minicam_bench
+Run on (8 X 2304.01 MHz CPU s)
+CPU Caches:
+  L1 Data 32 KiB (x4)
+  L1 Instruction 32 KiB (x4)
+  L2 Unified 256 KiB (x4)
+  L3 Unified 8192 KiB (x1)
+Load Average: 0.25, 0.75, 1.09
+----------------------------------------------------------------------------------------------------------------
+Benchmark                                                      Time             CPU   Iterations UserCounters...
+----------------------------------------------------------------------------------------------------------------
+BM_Stage/bilateral_lut_1thread/real_time_mean               6923 ms         6922 ms            3 MP/s=1.81463/s
+BM_Stage/bilateral_lut_1thread/real_time_median             7184 ms         7183 ms            3 MP/s=1.71074/s
+BM_Stage/bilateral_lut_1thread/real_time_stddev             1210 ms         1210 ms            3 MP/s=0.338802/s
+BM_Stage/bilateral_lut_1thread/real_time_cv                17.48 %         17.48 %             3 MP/s=18.67%
+BM_Stage/bilateral_lut_all_threads/real_time_mean           2473 ms         2436 ms            3 MP/s=5.09204/s
+BM_Stage/bilateral_lut_all_threads/real_time_median         2591 ms         2559 ms            3 MP/s=4.74415/s
+BM_Stage/bilateral_lut_all_threads/real_time_stddev          454 ms          450 ms            3 MP/s=1.01114/s
+BM_Stage/bilateral_lut_all_threads/real_time_cv            18.36 %         18.46 %             3 MP/s=19.86%
+BM_Stage/bilateral_reference_1thread/real_time_mean        13713 ms        13711 ms            3 MP/s=0.900693/s
+BM_Stage/bilateral_reference_1thread/real_time_median      13617 ms        13616 ms            3 MP/s=0.902538/s
+BM_Stage/bilateral_reference_1thread/real_time_stddev       1190 ms         1191 ms            3 MP/s=0.0776354/s
+BM_Stage/bilateral_reference_1thread/real_time_cv           8.68 %          8.69 %             3 MP/s=8.62%

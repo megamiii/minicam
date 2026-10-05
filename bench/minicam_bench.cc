@@ -149,6 +149,31 @@ BENCHMARK_CAPTURE(BM_Stage, denoise_bilateral, 5, Make<BilateralDenoiseStage>())
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime();
 
+// Bilateral variants for the optimization record.
+std::function<std::unique_ptr<Stage>()> MakeBilateral(
+    BilateralOptions::Implementation implementation, int num_threads) {
+  return [=] {
+    BilateralOptions options;
+    options.implementation = implementation;
+    options.num_threads = num_threads;
+    return std::make_unique<BilateralDenoiseStage>(options);
+  };
+}
+BENCHMARK_CAPTURE(BM_Stage, bilateral_reference_1thread, 5,
+                  MakeBilateral(BilateralOptions::Implementation::kReference, 1))
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(BM_Stage, bilateral_lut_1thread, 5,
+                  MakeBilateral(BilateralOptions::Implementation::kLookupTable,
+                                1))
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(BM_Stage, bilateral_lut_all_threads, 5,
+                  MakeBilateral(BilateralOptions::Implementation::kLookupTable,
+                                0))
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+
 double Percentile(std::vector<double> values, double p) {
   std::sort(values.begin(), values.end());
   const auto rank = static_cast<size_t>(
