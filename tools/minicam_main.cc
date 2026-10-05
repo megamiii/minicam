@@ -1,13 +1,22 @@
 // minicam command-line tool.
 //
 //   minicam --input frame.raw --output out.png [options]
+//   minicam --input frames_dir/ --output out_dir/ [--mode threaded] [options]
 //
-// Reads a minicam .raw file (see make_synthetic_raw) and runs the ISP:
+// Reads minicam .raw files (see make_synthetic_raw) and runs the ISP:
 //   black level -> demosaic -> white balance -> color correction
 //   -> tone map -> denoise
-// and writes an 8-bit sRGB PNG. Each stage can be selected or turned off.
+// and writes 8-bit sRGB PNGs. Each stage can be selected or turned off.
+//
+// With a directory as input (stream mode), every .raw file in it is processed
+// as one frame sequence, by the thread-per-stage pipeline (--mode threaded,
+// the default) or one frame at a time (--mode sequential).
 
+#include <algorithm>
 #include <charconv>
+#include <chrono>
+#include <cstdint>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -26,13 +35,16 @@
 #include "minicam/stages/denoise.h"
 #include "minicam/stages/tone_map.h"
 #include "minicam/stages/white_balance.h"
+#include "minicam/threaded_pipeline.h"
 
 namespace {
 
 constexpr std::string_view kUsage =
     R"(usage: minicam --input <frame.raw> --output <out.png> [options]
+       minicam --input <dir with .raw files> --output <out dir> [options]
 
 options:
+  --mode threaded|sequential         stream mode pipeline (default: threaded)
   --demosaic bilinear|malvar         demosaicing algorithm (default: malvar)
   --wb gray-world|metadata|off       white balance (default: gray-world)
   --ccm on|off                       color correction matrix (default: on)
@@ -52,6 +64,7 @@ struct Options {
   float exposure_ev = 0.0f;
   std::string denoise = "on";
   minicam::BilateralOptions bilateral;
+  std::string mode = "threaded";
 };
 
 int Fail(std::string_view message) {
@@ -65,7 +78,9 @@ bool ParseFloat(std::string_view text, float& value) {
   return ec == std::errc() && ptr == end;
 }
 
-minicam::Status BuildPipeline(const Options& o, minicam::Pipeline& pipeline) {
+// Works for both minicam::Pipeline and minicam::ThreadedPipeline.
+template <typename PipelineT>
+minicam::Status BuildPipeline(const Options& o, PipelineT& pipeline) {
   using minicam::InvalidArgumentError;
   pipeline.Add(std::make_unique<minicam::BlackLevelStage>());
 
@@ -113,46 +128,7 @@ minicam::Status BuildPipeline(const Options& o, minicam::Pipeline& pipeline) {
   return minicam::OkStatus();
 }
 
-}  // namespace
-
-int main(int argc, char** argv) {
-  Options o;
-  for (int i = 1; i < argc; ++i) {
-    const std::string_view arg = argv[i];
-    if (i + 1 >= argc) return Fail("missing value for " + std::string(arg));
-    const std::string_view value = argv[++i];
-    if (arg == "--input") {
-      o.input = value;
-    } else if (arg == "--output") {
-      o.output = value;
-    } else if (arg == "--demosaic") {
-      o.demosaic = value;
-    } else if (arg == "--wb") {
-      o.wb = value;
-    } else if (arg == "--ccm") {
-      o.ccm = value;
-    } else if (arg == "--tone") {
-      o.tone = value;
-    } else if (arg == "--exposure") {
-      if (!ParseFloat(value, o.exposure_ev)) return Fail("bad --exposure");
-    } else if (arg == "--denoise") {
-      o.denoise = value;
-    } else if (arg == "--sigma-spatial") {
-      if (!ParseFloat(value, o.bilateral.sigma_spatial)) {
-        return Fail("bad --sigma-spatial");
-      }
-    } else if (arg == "--sigma-range") {
-      if (!ParseFloat(value, o.bilateral.sigma_range)) {
-        return Fail("bad --sigma-range");
-      }
-    } else {
-      return Fail("unknown argument " + std::string(arg));
-    }
-  }
-  if (o.input.empty() || o.output.empty()) {
-    return Fail("--input and --output are required");
-  }
-
+int RunSingle(const Options& o) {
   minicam::Pipeline pipeline;
   minicam::Status status = BuildPipeline(o, pipeline);
   if (!status.ok()) return Fail(status.message());
@@ -184,4 +160,120 @@ int main(int argc, char** argv) {
   std::cout << "  white balance gains (R, G, B): " << std::setprecision(3)
             << g[0] << ", " << g[1] << ", " << g[2] << "\n";
   return 0;
+}
+
+// Processes every .raw file in o.input as one frame sequence.
+int RunStream(const Options& o) {
+  namespace fs = std::filesystem;
+  std::vector<fs::path> inputs;
+  std::error_code ec;
+  for (const fs::directory_entry& entry : fs::directory_iterator(o.input, ec)) {
+    if (entry.path().extension() == ".raw") inputs.push_back(entry.path());
+  }
+  if (ec) return Fail("cannot read " + o.input + ": " + ec.message());
+  if (inputs.empty()) return Fail("no .raw files in " + o.input);
+  std::sort(inputs.begin(), inputs.end());
+  fs::create_directories(o.output, ec);
+  if (ec) return Fail("cannot create " + o.output + ": " + ec.message());
+
+  // The same source and sink drive both modes, so they are compared fairly.
+  size_t next = 0;
+  auto source = [&](minicam::Frame& frame) -> minicam::StatusOr<bool> {
+    if (next == inputs.size()) return false;
+    const minicam::FrameMetadata assigned = frame.meta;
+    MINICAM_RETURN_IF_ERROR(minicam::ReadRawFile(inputs[next].string(), frame));
+    // Keep the pipeline's sequence number and timestamp; the file supplies
+    // the sensor metadata.
+    frame.meta.frame_id = assigned.frame_id;
+    frame.meta.timestamp_ns = assigned.timestamp_ns;
+    ++next;
+    return true;
+  };
+  auto sink = [&](minicam::Frame& frame) -> minicam::Status {
+    const fs::path out = fs::path(o.output) /
+                         (inputs[frame.meta.frame_id].stem().string() + ".png");
+    return minicam::SaveRgbPng(frame.rgb, out.string());
+  };
+
+  const auto start = std::chrono::steady_clock::now();
+  minicam::Status status;
+  if (o.mode == "threaded") {
+    minicam::ThreadedPipeline pipeline;
+    status = BuildPipeline(o, pipeline);
+    if (status.ok()) status = pipeline.Run(source, sink);
+  } else {
+    minicam::Pipeline pipeline;
+    status = BuildPipeline(o, pipeline);
+    minicam::Frame frame;
+    for (uint64_t id = 0; status.ok(); ++id) {
+      frame.meta = minicam::FrameMetadata{};
+      frame.meta.frame_id = id;
+      minicam::StatusOr<bool> produced = source(frame);
+      if (!produced.ok()) {
+        status = produced.status();
+        break;
+      }
+      if (!*produced) break;
+      status = pipeline.Process(frame);
+      if (status.ok()) status = sink(frame);
+    }
+  }
+  const double seconds =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+          .count();
+  if (!status.ok()) return Fail(status.ToString());
+
+  std::cout << std::fixed << std::setprecision(2) << "processed "
+            << inputs.size() << " frames (" << o.mode << ") in " << seconds
+            << " s, " << static_cast<double>(inputs.size()) / seconds
+            << " frames/s -> " << o.output << "\n";
+  return 0;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+  Options o;
+  for (int i = 1; i < argc; ++i) {
+    const std::string_view arg = argv[i];
+    if (i + 1 >= argc) return Fail("missing value for " + std::string(arg));
+    const std::string_view value = argv[++i];
+    if (arg == "--input") {
+      o.input = value;
+    } else if (arg == "--output") {
+      o.output = value;
+    } else if (arg == "--demosaic") {
+      o.demosaic = value;
+    } else if (arg == "--wb") {
+      o.wb = value;
+    } else if (arg == "--ccm") {
+      o.ccm = value;
+    } else if (arg == "--tone") {
+      o.tone = value;
+    } else if (arg == "--exposure") {
+      if (!ParseFloat(value, o.exposure_ev)) return Fail("bad --exposure");
+    } else if (arg == "--denoise") {
+      o.denoise = value;
+    } else if (arg == "--sigma-spatial") {
+      if (!ParseFloat(value, o.bilateral.sigma_spatial)) {
+        return Fail("bad --sigma-spatial");
+      }
+    } else if (arg == "--mode") {
+      o.mode = value;
+    } else if (arg == "--sigma-range") {
+      if (!ParseFloat(value, o.bilateral.sigma_range)) {
+        return Fail("bad --sigma-range");
+      }
+    } else {
+      return Fail("unknown argument " + std::string(arg));
+    }
+  }
+  if (o.input.empty() || o.output.empty()) {
+    return Fail("--input and --output are required");
+  }
+
+  if (o.mode != "threaded" && o.mode != "sequential") {
+    return Fail("unknown --mode " + o.mode);
+  }
+  return std::filesystem::is_directory(o.input) ? RunStream(o) : RunSingle(o);
 }
