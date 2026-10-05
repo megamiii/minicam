@@ -8,7 +8,7 @@ It is tested on real RAW bursts from the [Google HDR+ Burst Photography Dataset]
 
 <!-- TODO: add a hero image: RAW input on the left, minicam output on the right -->
 
-> **Status:** work in progress. Milestone 1 is done: project skeleton, a single-threaded pipeline, black-level correction, bilinear demosaicing and synthetic RAW generation, all tested. See [Progress](#progress).
+> **Status:** work in progress. Milestones 1 and 2 are done: all six ISP stages run in a single-threaded pipeline on synthetic RAW and are unit-tested. The Kodak demosaicing benchmark, the multi-threaded camera-HAL design and real DNG input come next. See [Progress](#progress).
 
 ## Features
 
@@ -55,6 +55,10 @@ It is tested on real RAW bursts from the [Google HDR+ Burst Photography Dataset]
 - **Bounded queues:** _how they provide back-pressure when a stage is slow_
 - **Buffer pool:** _why per-frame allocation hurts latency, and how buffers are recycled_
 - **Stage interface:** every stage implements `Stage::Process(Frame&)` and talks to other stages only through the `Frame` it is given. A `Frame` holds the metadata and one buffer per representation (`raw` uint16 mosaic, `bayer` normalized float mosaic, `rgb` linear float image). Because no stage knows about any other, a `Pipeline` is just an ordered `std::vector<std::unique_ptr<Stage>>`, and adding, removing or reordering stages only changes that list. The one rule is that a stage's input buffer must have been produced by an earlier stage; if it was not, the stage returns an error.
+- **Stage order:** black level → demosaic → white balance → CCM → tone map → denoise.
+  - The CCM is a change of color basis, so it runs on linear data, before the tone curve.
+  - Denoising runs *after* tone mapping. Shot noise grows with brightness, and the sRGB curve roughly evens out the noise level (it acts like a variance-stabilizing transform), so one bilateral range sigma fits shadows and highlights alike. Production ISPs instead denoise RAW data early, using a calibrated per-ISO noise model.
+  - White balance runs on demosaiced RGB. Many ISPs apply it to the mosaic before demosaicing, because Malvar's cross-channel correction assumes balanced channels. The stage interface makes that reordering easy to try.
 - **Errors without exceptions:** following the Google C++ Style Guide, nothing throws. Stages return a `Status`, and the pipeline stops at the first failure and reports the frame id and stage name, for example `frame 7, stage 'demosaic_bilinear': expected a 1-channel Bayer mosaic`.
 
 ## Results
@@ -67,14 +71,27 @@ It is tested on real RAW bursts from the [Google HDR+ Burst Photography Dataset]
 | White balance | _image_ | _image_ |
 | Tone mapping | _image_ | _image_ |
 
-**Demosaicing quality** (synthetic RAW against ground truth)
+**Demosaicing quality** on the Kodak set (24 images mosaicked through RGGB, compared with the originals; mean CPSNR, 10-pixel border excluded)
 
-| Method | PSNR (dB) |
-|---|---|
-| Bilinear | _TODO_ |
-| Malvar-He-Cutler | _TODO_ |
+| Method | sRGB domain (dB) | Linear domain (dB) |
+|---|---|---|
+| Bilinear | _TODO_ | _TODO_ |
+| Malvar-He-Cutler | _TODO_ | _TODO_ |
 
-So far, measured only on the procedural test scene used in the unit tests (256×192, 10-bit, no noise, 2-pixel border excluded), bilinear demosaicing scores **70.76 dB** on the smooth gradient region and **20.30 dB** on the full scene. The smooth-region score matches the theoretical limit set by 10-bit quantization (about 70.4 dB for 959 levels), so bilinear is effectively exact on smooth content. The full-scene score is dominated by aliasing on 3-pixel-wide stripes, which is the weakness Malvar-He-Cutler is meant to reduce.
+This table is filled by `demosaic_eval` (see [Test and benchmark](#test-and-benchmark)).
+
+Measured so far on the procedural test scene used in the unit tests (256×192, 10-bit synthetic RAW, no noise, 2-pixel border excluded):
+
+| Method | Full scene | Smooth region |
+|---|---|---|
+| Bilinear | 20.30 dB | 70.76 dB |
+| Malvar-He-Cutler | 24.37 dB | 69.56 dB |
+
+- The smooth-region scores are near the theoretical limit set by 10-bit quantization (about 70.4 dB for 959 levels), so both methods are effectively exact on smooth content.
+- The full scene is dominated by aliasing on 3-pixel-wide stripes. That is where Malvar's cross-channel correction gains 4.06 dB.
+- In the smooth region Malvar is 1.2 dB *worse*. Its Laplacian term is a high-pass filter, so it slightly amplifies quantization noise. This sharpness-versus-noise trade-off is why real ISPs denoise before or jointly with demosaicing.
+
+**Denoising** (unit test, test scene in display values plus Gaussian noise σ = 0.03): the bilateral filter (σ_s = 2, σ_r = 0.08) raises PSNR from **30.42 dB to 41.31 dB**.
 
 ## Performance
 
@@ -136,10 +153,13 @@ The tool undoes the sRGB gamma, keeps one color per pixel in the chosen Bayer pa
 
 ### Run
 
-Currently `minicam` reads synthetic `.raw` files and runs black level + bilinear demosaicing. There is no tone mapping stage yet, so the output PNG holds linear values and looks darker than a normal photo.
+Currently `minicam` reads synthetic `.raw` files and runs the full single-threaded ISP. It prints the time of each stage and the white balance gains it applied.
 
 ```bash
 ./build/minicam --input data/synthetic.raw --output out.png
+
+# Every stage can be selected or turned off, e.g. for before/after images:
+./build/minicam --input data/synthetic.raw --output out.png     --demosaic bilinear|malvar --wb gray-world|metadata|off --ccm on|off     --tone reinhard|clip --exposure 0.5 --denoise on|off     --sigma-spatial 2 --sigma-range 0.08
 ```
 
 Planned (DNG input via LibRaw and stream mode are not implemented yet):
@@ -156,27 +176,35 @@ Planned (DNG input via LibRaw and stream mode are not implemented yet):
 
 ```bash
 ctest --test-dir build --output-on-failure
-./build/minicam_bench
+./build/minicam_bench   # planned
+
+# Demosaicing quality on the Kodak set (24 PNGs, ~15 MB, into data/kodak/)
+./scripts/download_kodak.sh
+./build/demosaic_eval data/kodak
 ```
+
+`download_kodak.sh` currently fails because the host refuses non-browser downloads. In that case it prints instructions for saving the 24 images from [r0k.us/graphics/kodak](https://r0k.us/graphics/kodak/) by hand.
+
+`demosaic_eval` samples each image through an RGGB mosaic with an ideal sensor (no noise or quantization), reconstructs it with both methods, and reports CPSNR (PSNR over all three channels) with a 10-pixel border excluded. It does this in two domains: directly on the 8-bit sRGB values, which is the usual protocol in the literature, and on linearized values, as in minicam's pipeline.
 
 ## Project structure
 
-<!-- TODO: update as bench/, scripts/ and CI are added -->
+<!-- TODO: update as bench/ and CI are added -->
 
 ```
 minicam/
 ├── include/minicam/      # Public headers: Status, Image, Frame, Stage, Pipeline, CFA, color, metrics
-│   ├── stages/           # Stage headers (black level, demosaic, ...)
+│   ├── stages/           # Black level, demosaic, white balance, CCM, tone map, denoise
 │   └── io/               # RAW container, synthetic RAW, image file I/O
 ├── src/
 │   ├── core/             # Status, CFA, color transfer, PSNR
 │   ├── stages/           # ISP stage implementations
 │   ├── pipeline/         # Pipeline (threading, queues and buffer pool come later)
 │   └── io/               # .raw reader/writer, synthetic RAW generator, OpenCV file I/O
-├── tools/                # minicam CLI and make_synthetic_raw
+├── tools/                # minicam CLI, make_synthetic_raw, demosaic_eval
 ├── tests/                # GoogleTest unit tests and procedural test scenes
 ├── bench/                # (planned) Google Benchmark performance tests
-├── scripts/              # (planned) dataset download
+├── scripts/              # Dataset download (Kodak; HDR+ planned)
 └── docs/images/          # README images
 ```
 
@@ -185,7 +213,8 @@ minicam/
 ## Progress
 
 - [x] **Milestone 1:** CMake skeleton, `Status`/`Image`/`Frame`/`Stage`, single-threaded `Pipeline`, black-level stage, bilinear demosaicing, synthetic RAW tool, PSNR metric, 43 unit tests (also clean under AddressSanitizer + UndefinedBehaviorSanitizer)
-- [ ] **Milestone 2:** remaining ISP stages (Malvar demosaic, gray-world AWB, CCM, tone mapping, bilateral denoise)
+- [x] **Milestone 2:** Malvar-He-Cutler demosaicing, gray-world AWB, color correction matrix, auto exposure + Reinhard tone mapping + sRGB, bilateral denoising, full pipeline in the CLI with per-stage timing, `demosaic_eval` tool, 76 unit tests (also clean under ASan + UBSan)
+  - [ ] Kodak demosaicing results (waiting for the image download)
 - [ ] **Milestone 3:** camera-HAL-style system: bounded queues, buffer pool, thread-per-stage pipeline, shutdown and error propagation
 - [ ] **Milestone 4:** real data: LibRaw DNG loader, HDR+ download script, stream mode
 - [ ] **Milestone 5:** benchmarks, optimizations, profiling
@@ -201,6 +230,9 @@ minicam/
 ## References
 
 - H. S. Malvar, L. He, R. Cutler. "High-quality linear interpolation for demosaicing of Bayer-patterned color images." ICASSP 2004.
+- C. Tomasi, R. Manduchi. "Bilateral filtering for gray and color images." ICCV 1998.
+- E. Reinhard, M. Stark, P. Shirley, J. Ferwerda. "Photographic tone reproduction for digital images." ACM Transactions on Graphics (SIGGRAPH), 2002.
+- G. Buchsbaum. "A spatial processor model for object colour perception." Journal of the Franklin Institute, 1980 (gray-world assumption).
 - N. Dalal, B. Triggs. "Histograms of Oriented Gradients for Human Detection." CVPR 2005.
 - S. W. Hasinoff et al. "Burst photography for high dynamic range and low-light imaging on mobile cameras." ACM Transactions on Graphics (SIGGRAPH Asia), 2016.
 
@@ -219,5 +251,7 @@ Test images come from the [HDR+ Burst Photography Dataset](https://hdrplusdata.o
   year    = {2016},
 }
 ```
+
+Demosaicing quality is measured on the [Kodak Lossless True Color Image Suite](https://r0k.us/graphics/kodak/) (PhotoCD PCD0992), which Eastman Kodak released for unrestricted use. These images are not stored in this repository either.
 
 The minicam source code is released under the MIT License. See [LICENSE](LICENSE).
