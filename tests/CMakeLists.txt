@@ -22,6 +22,7 @@ add_executable(minicam_tests
   status_test.cc
   synthetic_test.cc
   test_scenes.cc
+  tone_map_test.cc
   white_balance_test.cc
 )
 target_link_libraries(minicam_tests PRIVATE minicam_core minicam_warnings GTest::gtest_main)

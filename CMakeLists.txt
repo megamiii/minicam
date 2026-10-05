@@ -50,6 +50,7 @@ add_library(minicam_core
   src/stages/black_level.cc
   src/stages/color_correction.cc
   src/stages/demosaic.cc
+  src/stages/tone_map.cc
   src/stages/white_balance.cc
 )
 target_include_directories(minicam_core PUBLIC include)
