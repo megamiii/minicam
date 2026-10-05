@@ -46,6 +46,7 @@ add_library(minicam_core
   src/core/status.cc
   src/io/raw_file.cc
   src/io/synthetic.cc
+  src/pipeline/frame_pool.cc
   src/pipeline/pipeline.cc
   src/stages/black_level.cc
   src/stages/color_correction.cc
