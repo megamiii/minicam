@@ -12,6 +12,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(minicam_tests
   black_level_test.cc
   cfa_test.cc
+  color_correction_test.cc
   color_test.cc
   demosaic_test.cc
   image_test.cc

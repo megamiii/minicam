@@ -48,6 +48,7 @@ add_library(minicam_core
   src/io/synthetic.cc
   src/pipeline/pipeline.cc
   src/stages/black_level.cc
+  src/stages/color_correction.cc
   src/stages/demosaic.cc
   src/stages/white_balance.cc
 )
