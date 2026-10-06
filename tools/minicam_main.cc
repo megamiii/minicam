@@ -62,7 +62,8 @@ options:
                                      corrected Bayer mosaic as grayscale
   --detect-faces <template image>    add HOG face detection (template
                                      matching) and draw the boxes
-  --detect-downscale N               detect on the image shrunk N times
+  --detect-downscale F[,F...]        detect on the image shrunk by each
+                                     factor (an image pyramid)
   --ncc-threshold T                  detection threshold (default: 0.49)
 )";
 
@@ -394,11 +395,21 @@ int main(int argc, char** argv) {
     } else if (arg == "--detect-faces") {
       o.face_template = value;
     } else if (arg == "--detect-downscale") {
-      auto [ptr, ec] = std::from_chars(
-          value.data(), value.data() + value.size(), o.faces.downscale);
-      if (ec != std::errc() || ptr != value.data() + value.size()) {
-        return Fail("bad --detect-downscale");
+      // Comma-separated factors, e.g. "6,7,8" for a small pyramid.
+      o.faces.downscales.clear();
+      const char* p = value.data();
+      const char* end = value.data() + value.size();
+      while (p < end) {
+        int factor = 0;
+        auto [next, ec] = std::from_chars(p, end, factor);
+        if (ec != std::errc() || factor < 1) {
+          return Fail("bad --detect-downscale");
+        }
+        o.faces.downscales.push_back(factor);
+        p = next;
+        if (p < end && *p++ != ',') return Fail("bad --detect-downscale");
       }
+      if (o.faces.downscales.empty()) return Fail("bad --detect-downscale");
     } else if (arg == "--ncc-threshold") {
       if (!ParseFloat(value, o.faces.ncc_threshold)) {
         return Fail("bad --ncc-threshold");

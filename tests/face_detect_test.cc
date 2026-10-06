@@ -74,7 +74,8 @@ Frame GrayToFrame(const Image<float>& gray, int upscale = 1) {
   return frame;
 }
 
-std::vector<Detection> Detect(Frame& frame, FaceDetectionOptions options) {
+std::vector<Detection> Detect(Frame& frame,
+                              const FaceDetectionOptions& options) {
   auto stage = HogFaceDetectionStage::Create(MakeFace(), options);
   EXPECT_TRUE(stage.ok()) << stage.status().ToString();
   EXPECT_TRUE((*stage)->Process(frame).ok());
@@ -137,7 +138,7 @@ TEST(FaceDetectTest, DownscaledDetectionReportsFullResolutionBoxes) {
   Frame frame =
       GrayToFrame(MakeTarget(240, 180, {{30, 39}, {150, 90}}), /*upscale=*/2);
   FaceDetectionOptions options;
-  options.downscale = 2;
+  options.downscales = {2};
   std::vector<Detection> found = Detect(frame, options);
   std::sort(found.begin(), found.end(),
             [](const Detection& a, const Detection& b) { return a.x < b.x; });
@@ -147,6 +148,41 @@ TEST(FaceDetectTest, DownscaledDetectionReportsFullResolutionBoxes) {
   EXPECT_EQ(found[0].width, 2 * kFaceSize);
   EXPECT_EQ(found[1].x, 300);
   EXPECT_EQ(found[1].y, 180);
+}
+
+// Faces of two sizes in one image: a pyramid of factors {1, 2} finds the
+// small faces at factor 1 and the large one at factor 2, and NMS merges the
+// candidates of both scales.
+TEST(FaceDetectTest, PyramidFindsFacesOfDifferentSizes) {
+  // Large face: the 48 px face enlarged 2x (96 px) at (180, 30).
+  Frame frame = GrayToFrame(MakeTarget(320, 240, {{30, 39}, {30, 150}}));
+  const Image<float> face = MakeFace();
+  for (int y = 0; y < 2 * kFaceSize; ++y) {
+    for (int x = 0; x < 2 * kFaceSize; ++x) {
+      for (int c = 0; c < 3; ++c) {
+        frame.rgb.at(180 + x, 30 + y, c) = face.at(x / 2, y / 2);
+      }
+    }
+  }
+  FaceDetectionOptions options;
+  options.downscales = {1, 2};
+  std::vector<Detection> found = Detect(frame, options);
+  std::sort(found.begin(), found.end(),
+            [](const Detection& a, const Detection& b) {
+              return a.x != b.x ? a.x < b.x : a.y < b.y;
+            });
+  ASSERT_EQ(found.size(), 3u);
+  EXPECT_EQ(found[0].x, 30);
+  EXPECT_EQ(found[0].width, kFaceSize);
+  EXPECT_EQ(found[1].y, 150);
+  EXPECT_EQ(found[2].x, 180);
+  EXPECT_EQ(found[2].y, 30);
+  EXPECT_EQ(found[2].width, 2 * kFaceSize);
+
+  // With only factor 1, the large face is missed.
+  options.downscales = {1};
+  Frame again = frame;
+  EXPECT_EQ(Detect(again, options).size(), 2u);
 }
 
 TEST(FaceDetectTest, RejectsBadTemplates) {

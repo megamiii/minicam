@@ -24,9 +24,11 @@ struct FaceDetectionOptions {
   float nms_iou = 0.5f;
   // Window step in pixels (of the downscaled image).
   int stride = 3;
-  // Detect on the image shrunk by this integer factor (block averaging).
-  // Faces must be about template-sized at that scale.
-  int downscale = 1;
+  // Integer factors by which the image is shrunk (block averaging) before
+  // scanning: an image pyramid. A face is found at the factor where it is
+  // about template-sized, so several factors cover several face sizes;
+  // neighboring factors should differ by at most ~20%.
+  std::vector<int> downscales = {1};
   // Threads for rows of windows; 0 means one per hardware thread.
   int num_threads = 0;
 };
@@ -34,15 +36,16 @@ struct FaceDetectionOptions {
 // Finds template-like faces in frame.rgb (sRGB-encoded, i.e. after tone
 // mapping) and writes them to frame.detections, in frame.rgb coordinates.
 //
-//   1. Gray = 0.299 R + 0.587 G + 0.114 B, optionally downscaled.
-//   2. Sobel gradients and an integral histogram, computed once per frame.
+//   1. For each factor in `downscales`: gray = 0.299 R + 0.587 G + 0.114 B,
+//      averaged over factor x factor blocks.
+//   2. Sobel gradients and an integral histogram, once per scale.
 //   3. For every window of the template's size (step `stride`): HOG
 //      descriptor, mean-centered; score = normalized cross-correlation (the
 //      cosine) with the mean-centered template descriptor.
-//   4. Windows above ncc_threshold, reduced by greedy non-maximum
-//      suppression.
-// Single scale, rigid template: the C++ version of a template-matching HOG
-// detector, not a trained classifier.
+//   4. Windows above ncc_threshold from all scales, converted to frame.rgb
+//      pixels and reduced by one greedy non-maximum suppression.
+// A rigid template, matched over a small image pyramid: the C++ version of a
+// template-matching HOG detector, not a trained classifier.
 class HogFaceDetectionStage final : public Stage {
  public:
   // `face_template` is a 1-channel image in [0, 1] at the detection scale.
@@ -53,6 +56,11 @@ class HogFaceDetectionStage final : public Stage {
   Status Process(Frame& frame) override;
 
  private:
+  // Scores every window at one downscale factor and appends the candidates
+  // (in frame.rgb pixels).
+  void ScanScale(const Image<float>& rgb, int factor,
+                 std::vector<Detection>& candidates);
+
   HogFaceDetectionStage(FaceDetectionOptions options, int template_width,
                         int template_height, std::vector<float> descriptor);
 
@@ -76,7 +84,12 @@ float IntersectionOverUnion(const Detection& a, const Detection& b);
 // Converts an RGB image to gray with the Rec.601 weights (as OpenCV does).
 void RgbToGray(const Image<float>& rgb, Image<float>& gray);
 
-// Draws 2-pixel rectangle outlines into an RGB image, for visualization.
+// Gray image averaged over factor x factor blocks: exactly what the detector
+// scans at that factor. Use it to cut templates from the same domain.
+void DownscaledGray(const Image<float>& rgb, int factor, Image<float>& gray);
+
+// Draws rectangle outlines (at least 2 pixels, thicker for large boxes) into
+// an RGB image, for visualization.
 void DrawDetections(const std::vector<Detection>& detections,
                     Image<float>& rgb);
 

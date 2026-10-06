@@ -55,14 +55,15 @@ std::vector<Detection> NonMaxSuppression(std::vector<Detection> boxes,
 
 void DrawDetections(const std::vector<Detection>& detections,
                     Image<float>& rgb) {
-  constexpr int kThickness = 2;
   constexpr std::array<float, 3> kColor = {0.0f, 1.0f, 0.0f};
   auto paint = [&](int x, int y) {
     if (x < 0 || y < 0 || x >= rgb.width() || y >= rgb.height()) return;
     for (int c = 0; c < 3; ++c) rgb.at(x, y, c) = kColor[c];
   };
   for (const Detection& d : detections) {
-    for (int t = 0; t < kThickness; ++t) {
+    // Lines scale with the box, so they stay visible in downscaled previews.
+    const int thickness = std::max(2, d.width / 40);
+    for (int t = 0; t < thickness; ++t) {
       for (int x = d.x; x < d.x + d.width; ++x) {
         paint(x, d.y + t);
         paint(x, d.y + d.height - 1 - t);
@@ -80,8 +81,12 @@ StatusOr<std::unique_ptr<HogFaceDetectionStage>> HogFaceDetectionStage::Create(
   if (face_template.empty() || face_template.channels() != 1) {
     return InvalidArgumentError("the face template must be a gray image");
   }
+  const bool bad_factor =
+      options.downscales.empty() ||
+      std::any_of(options.downscales.begin(), options.downscales.end(),
+                  [](int f) { return f < 1; });
   if (options.hog.cell_size < 1 || options.hog.block_size < 1 ||
-      options.stride < 1 || options.downscale < 1) {
+      options.stride < 1 || bad_factor) {
     return InvalidArgumentError("invalid face detection options");
   }
   std::vector<float> descriptor = ExtractHog(face_template, options.hog);
@@ -106,7 +111,7 @@ StatusOr<std::unique_ptr<HogFaceDetectionStage>> HogFaceDetectionStage::Create(
   for (float& v : descriptor) v *= inv_norm;
 
   return std::unique_ptr<HogFaceDetectionStage>(
-      new HogFaceDetectionStage(options, face_template.width(),
+      new HogFaceDetectionStage(std::move(options), face_template.width(),
                                 face_template.height(), std::move(descriptor)));
 }
 
@@ -114,23 +119,16 @@ HogFaceDetectionStage::HogFaceDetectionStage(FaceDetectionOptions options,
                                              int template_width,
                                              int template_height,
                                              std::vector<float> descriptor)
-    : options_(options),
+    : options_(std::move(options)),
       template_width_(template_width),
       template_height_(template_height),
       template_descriptor_(std::move(descriptor)) {}
 
-Status HogFaceDetectionStage::Process(Frame& frame) {
-  const Image<float>& rgb = frame.rgb;
-  if (rgb.empty() || rgb.channels() != 3) {
-    return InvalidArgumentError("expected a 3-channel RGB image");
-  }
-  frame.detections.clear();
-
-  // Gray image at the detection scale: average of f x f blocks.
-  const int f = options_.downscale;
+void DownscaledGray(const Image<float>& rgb, int factor, Image<float>& gray) {
+  const int f = factor;
   const int width = rgb.width() / f;
   const int height = rgb.height() / f;
-  gray_.Resize(width, height, 1);
+  gray.Resize(width, height, 1);
   const float inv_area = 1.0f / static_cast<float>(f * f);
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
@@ -141,11 +139,31 @@ Status HogFaceDetectionStage::Process(Frame& frame) {
           sum += 0.299f * p[0] + 0.587f * p[1] + 0.114f * p[2];
         }
       }
-      gray_.at(x, y) = sum * inv_area;
+      gray.at(x, y) = sum * inv_area;
     }
   }
+}
+
+Status HogFaceDetectionStage::Process(Frame& frame) {
+  const Image<float>& rgb = frame.rgb;
+  if (rgb.empty() || rgb.channels() != 3) {
+    return InvalidArgumentError("expected a 3-channel RGB image");
+  }
+  // Every scale's candidates are in frame.rgb pixels, and NCC scores do not
+  // depend on scale, so one suppression pass compares them all.
+  std::vector<Detection> candidates;
+  for (int factor : options_.downscales) ScanScale(rgb, factor, candidates);
+  frame.detections = NonMaxSuppression(std::move(candidates), options_.nms_iou);
+  return OkStatus();
+}
+
+void HogFaceDetectionStage::ScanScale(const Image<float>& rgb, int factor,
+                                      std::vector<Detection>& candidates) {
+  DownscaledGray(rgb, factor, gray_);
+  const int width = gray_.width();
+  const int height = gray_.height();
   if (width < template_width_ || height < template_height_) {
-    return OkStatus();  // Nothing template-sized fits.
+    return;  // Nothing template-sized fits at this scale.
   }
 
   ComputeGradients(gray_, gradients_);
@@ -181,25 +199,18 @@ Status HogFaceDetectionStage::Process(Frame& frame) {
                     const auto score =
                         static_cast<float>(dot / std::sqrt(centered_sq));
                     if (score > options_.ncc_threshold) {
-                      per_row[r].push_back(
-                          {x, y, template_width_, template_height_, score});
+                      // Stored in frame.rgb pixels.
+                      per_row[r].push_back({x * factor, y * factor,
+                                            template_width_ * factor,
+                                            template_height_ * factor, score});
                     }
                   }
                 }
               });
 
-  std::vector<Detection> candidates;
   for (const std::vector<Detection>& row : per_row) {
     candidates.insert(candidates.end(), row.begin(), row.end());
   }
-  frame.detections = NonMaxSuppression(std::move(candidates), options_.nms_iou);
-  for (Detection& d : frame.detections) {  // Back to frame.rgb pixels.
-    d.x *= f;
-    d.y *= f;
-    d.width *= f;
-    d.height *= f;
-  }
-  return OkStatus();
 }
 
 }  // namespace minicam
