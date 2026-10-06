@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Every job runs in Ubuntu 22.04, the toolchain the project is developed and
+# measured with (GCC 11.4, Clang 14, LibRaw 0.20, OpenCV 4.5), so CI does not
+# change when GitHub updates its runner images. CI uses synthetic data only;
+# tests that need the HDR+ dataset skip themselves.
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+  DEPS: >-
+    build-essential cmake ninja-build git ca-certificates
+    libraw-dev libopencv-dev
+
+jobs:
+  build-test:
+    name: build + test (${{ matrix.compiler }})
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang-14
+            cxx: clang++-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends $DEPS clang-14
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DMINICAM_WERROR=ON
+          -DCMAKE_C_COMPILER=${{ matrix.cc }} -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Benchmark smoke run
+        run: ./build/minicam_bench --benchmark_filter='BM_Stage/(black_level|color_correction)$' --benchmark_min_time=1x
+
+  asan:
+    name: AddressSanitizer + UBSan
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends $DEPS
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DMINICAM_SANITIZER=address -DMINICAM_BUILD_BENCHMARKS=OFF
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  tsan:
+    name: ThreadSanitizer
+    runs-on: ubuntu-latest
+    # setarch -R needs the personality() system call, which Docker's default
+    # seccomp profile blocks.
+    container:
+      image: ubuntu:22.04
+      options: --security-opt seccomp=unconfined
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends $DEPS
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DMINICAM_SANITIZER=thread -DMINICAM_BUILD_BENCHMARKS=OFF
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        # GCC 11's TSan runtime fails ("unexpected memory mapping") under the
+        # address-space randomization of recent kernels; disable it for the
+        # test process only.
+        run: setarch "$(uname -m)" -R ctest --test-dir build --output-on-failure
+
+  clang-tidy:
+    name: clang-tidy + clang-format
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends $DEPS clang-14 clang-tidy-14 clang-format-14
+      - name: clang-format
+        run: >
+          find include src tests tools bench -name '*.h' -o -name '*.cc' |
+          xargs clang-format-14 --dry-run --Werror
+      - name: Configure (compile_commands.json)
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build (fetches GoogleTest and Google Benchmark headers)
+        run: cmake --build build
+      - name: clang-tidy
+        # run-clang-tidy-14 has no -warnings-as-errors option, so fail on any
+        # warning or error in its output instead.
+        run: |
+          run-clang-tidy-14 -p build -quiet $(ls src/*/*.cc tools/*.cc tests/*.cc bench/*.cc) > tidy.log 2>&1 || true
+          if grep -E "(warning|error):" tidy.log; then exit 1; fi
+          echo "clang-tidy: no warnings"

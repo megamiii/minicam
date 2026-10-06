@@ -66,13 +66,16 @@ target_link_libraries(minicam_core PUBLIC Threads::Threads PRIVATE minicam_warni
 # File I/O: camera RAW via LibRaw (thread-safe build), image files via
 # OpenCV, which is used here only to decode and encode files.
 find_package(OpenCV REQUIRED COMPONENTS core imgcodecs)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBRAW REQUIRED IMPORTED_TARGET libraw_r)
+# LibRaw's pkg-config file adds -fopenmp to the link line, which with Clang
+# needs libomp. minicam does not use OpenMP, and libraw_r.so already depends on
+# its own OpenMP runtime, so link the library directly instead.
+find_path(LIBRAW_INCLUDE_DIR libraw/libraw.h REQUIRED)
+find_library(LIBRAW_LIBRARY raw_r REQUIRED)
 add_library(minicam_io src/io/dng_reader.cc src/io/image_io.cc)
 target_link_libraries(minicam_io
   PUBLIC minicam_core
-  PRIVATE minicam_warnings opencv_core opencv_imgcodecs PkgConfig::LIBRAW)
-target_include_directories(minicam_io SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+  PRIVATE minicam_warnings opencv_core opencv_imgcodecs ${LIBRAW_LIBRARY})
+target_include_directories(minicam_io SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS} ${LIBRAW_INCLUDE_DIR})
 
 add_executable(make_synthetic_raw tools/make_synthetic_raw.cc)
 target_link_libraries(make_synthetic_raw PRIVATE minicam_io minicam_warnings)
