@@ -34,9 +34,10 @@ StatusOr<Image<float>> LoadRgb(const std::string& path, bool linearize) {
       for (int c = 0; c < 3; ++c) {
         // OpenCV stores pixels as B, G, R.
         const int src_c = 2 - c;
-        const float v = bgr.depth() == CV_8U
-                            ? bgr.ptr<uint8_t>(y)[x * 3 + src_c]
-                            : bgr.ptr<uint16_t>(y)[x * 3 + src_c];
+        const float v =
+            bgr.depth() == CV_8U
+                ? static_cast<float>(bgr.ptr<uint8_t>(y)[x * 3 + src_c])
+                : static_cast<float>(bgr.ptr<uint16_t>(y)[x * 3 + src_c]);
         out[x * 3 + c] =
             linearize ? SrgbToLinear(v / max_value) : v / max_value;
       }

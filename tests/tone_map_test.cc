@@ -1,6 +1,7 @@
 #include "minicam/stages/tone_map.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 
@@ -27,7 +28,7 @@ ToneMapOptions ClipWithoutAutoExposure() {
 
 TEST(ToneMapTest, ClipOperatorIsSrgbEncoding) {
   Image<float> image(4, 1, 3);
-  const float inputs[4] = {0.0f, 0.2140f, 1.0f, 3.0f};
+  const std::array<float, 4> inputs = {0.0f, 0.2140f, 1.0f, 3.0f};
   for (int x = 0; x < 4; ++x) {
     for (int c = 0; c < 3; ++c) image.at(x, 0, c) = inputs[x];
   }

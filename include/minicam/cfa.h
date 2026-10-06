@@ -8,6 +8,7 @@
 #ifndef MINICAM_CFA_H_
 #define MINICAM_CFA_H_
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string_view>
@@ -27,12 +28,12 @@ constexpr int CfaTileIndex(int x, int y) { return ((y & 1) << 1) | (x & 1); }
 
 // Color (kRed, kGreen or kBlue) of the filter over pixel (x, y).
 constexpr int CfaColorAt(CfaPattern pattern, int x, int y) {
-  constexpr int kTable[4][4] = {
+  constexpr std::array<std::array<int, 4>, 4> kTable = {{
       {kRed, kGreen, kGreen, kBlue},  // RGGB
       {kBlue, kGreen, kGreen, kRed},  // BGGR
       {kGreen, kRed, kBlue, kGreen},  // GRBG
       {kGreen, kBlue, kRed, kGreen},  // GBRG
-  };
+  }};
   return kTable[static_cast<int>(pattern)][CfaTileIndex(x, y)];
 }
 

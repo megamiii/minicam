@@ -18,14 +18,16 @@ constexpr int kFaceSize = 48;
 // mouth. Only for tests; the detector compares gradient structure.
 Image<float> MakeFace() {
   Image<float> face(kFaceSize, kFaceSize, 1);
-  const float c = kFaceSize / 2.0f;
+  const float c = static_cast<float>(kFaceSize) / 2.0f;
   for (int y = 0; y < kFaceSize; ++y) {
     for (int x = 0; x < kFaceSize; ++x) {
-      const float dx = (x - c) / 18.0f;
-      const float dy = (y - c) / 22.0f;
+      const auto fx = static_cast<float>(x);
+      const auto fy = static_cast<float>(y);
+      const float dx = (fx - c) / 18.0f;
+      const float dy = (fy - c) / 22.0f;
       float v = dx * dx + dy * dy < 1.0f ? 0.35f : 0.8f;
       auto disk = [&](float cx, float cy, float r) {
-        return (x - cx) * (x - cx) + (y - cy) * (y - cy) < r * r;
+        return (fx - cx) * (fx - cx) + (fy - cy) * (fy - cy) < r * r;
       };
       if (disk(16.0f, 19.0f, 4.0f) || disk(32.0f, 19.0f, 4.0f)) v = 0.9f;
       if (y >= 33 && y <= 35 && x >= 16 && x <= 32) v = 0.9f;
@@ -43,8 +45,10 @@ Image<float> MakeTarget(int width, int height,
   std::normal_distribution<float> noise(0.0f, 0.02f);
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
-      gray.at(x, y) =
-          0.5f + 0.2f * std::sin(x / 37.0f) * std::cos(y / 23.0f) + noise(rng);
+      gray.at(x, y) = 0.5f +
+                      0.2f * std::sin(static_cast<float>(x) / 37.0f) *
+                          std::cos(static_cast<float>(y) / 23.0f) +
+                      noise(rng);
     }
   }
   const Image<float> face = MakeFace();

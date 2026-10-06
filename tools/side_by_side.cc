@@ -11,8 +11,8 @@
 // display and verification.
 
 #include <algorithm>
+#include <array>
 #include <charconv>
-#include <cstdio>
 #include <iostream>
 #include <string_view>
 #include <system_error>
@@ -22,14 +22,33 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
+namespace {
+
+// Parses "a,b,c,d" into four numbers; false on any malformed or extra text.
+bool ParseFourNumbers(std::string_view text, std::array<double, 4>& out) {
+  const char* p = text.data();
+  const char* end = text.data() + text.size();
+  for (size_t i = 0; i < out.size(); ++i) {
+    auto [next, ec] = std::from_chars(p, end, out[i]);
+    if (ec != std::errc()) return false;
+    p = next;
+    if (i + 1 < out.size()) {
+      if (p == end || *p != ',') return false;
+      ++p;
+    }
+  }
+  return p == end;
+}
+
+}  // namespace
+
 int main(int argc, char** argv) {
   // Optional leading --crop fx,fy,fw,fh.
-  double crop[4] = {0.0, 0.0, 1.0, 1.0};
+  std::array<double, 4> crop = {0.0, 0.0, 1.0, 1.0};
   if (argc > 2 && std::string_view(argv[1]) == "--crop") {
-    if (std::sscanf(argv[2], "%lf,%lf,%lf,%lf", &crop[0], &crop[1], &crop[2],
-                    &crop[3]) != 4 ||
-        crop[0] < 0.0 || crop[1] < 0.0 || crop[2] <= 0.0 || crop[3] <= 0.0 ||
-        crop[0] + crop[2] > 1.0 || crop[1] + crop[3] > 1.0) {
+    if (!ParseFourNumbers(argv[2], crop) || crop[0] < 0.0 || crop[1] < 0.0 ||
+        crop[2] <= 0.0 || crop[3] <= 0.0 || crop[0] + crop[2] > 1.0 ||
+        crop[1] + crop[3] > 1.0) {
       std::cerr << "error: bad --crop, expected fx,fy,fw,fh in [0, 1]\n";
       return 1;
     }

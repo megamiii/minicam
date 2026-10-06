@@ -89,7 +89,9 @@ class [[nodiscard]] StatusOr {
 }  // namespace minicam
 
 // Evaluates `expr` (a Status) and returns it from the enclosing function if it
-// is not OK.
+// is not OK. A macro because a function cannot return from its caller; the
+// same pattern as absl's RETURN_IF_ERROR.
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define MINICAM_RETURN_IF_ERROR(expr)                  \
   do {                                                 \
     ::minicam::Status minicam_status_ = (expr);        \

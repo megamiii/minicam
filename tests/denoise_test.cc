@@ -35,7 +35,7 @@ double StdDev(const Image<float>& image) {
     sum += v;
     sum_sq += static_cast<double>(v) * v;
   }
-  const double n = static_cast<double>(image.size());
+  const auto n = static_cast<double>(image.size());
   const double mean = sum / n;
   return std::sqrt(sum_sq / n - mean * mean);
 }

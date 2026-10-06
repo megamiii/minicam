@@ -50,14 +50,14 @@ Image<float> MakeScene(int width, int height) {
   const float two_pi = 2.0f * std::numbers::pi_v<float>;
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
-      const float u = static_cast<float>(x) / width;
-      const float v = static_cast<float>(y) / height;
+      const float u = static_cast<float>(x) / static_cast<float>(width);
+      const float v = static_cast<float>(y) / static_cast<float>(height);
       const bool block = ((x / 64) + (y / 64)) % 2 == 0;
       const float detail = 0.1f * std::sin(two_pi * 40.0f * u * v);
       image.at(x, y, 0) = 0.05f + 0.5f * u + (block ? 0.2f : 0.0f) + detail;
       image.at(x, y, 1) = 0.05f + 0.5f * v + detail;
-      image.at(x, y, 2) = 0.3f + 0.2f * std::sin(two_pi * (u + v)) +
-                          (block ? 0.0f : 0.15f);
+      image.at(x, y, 2) =
+          0.3f + 0.2f * std::sin(two_pi * (u + v)) + (block ? 0.0f : 0.15f);
     }
   }
   return image;
@@ -66,7 +66,8 @@ Image<float> MakeScene(int width, int height) {
 // A noisy synthetic RAW frame, as the camera would deliver it.
 const Frame& RawFrame() {
   static const Frame* frame = [] {
-    auto* f = new Frame();
+    // Intentionally leaked: shared, immutable input for all benchmarks.
+    auto* f = new Frame();  // NOLINT(cppcoreguidelines-owning-memory)
     SyntheticRawOptions options;
     options.shot_noise = 0.002f;
     options.read_noise = 0.005f;
@@ -81,9 +82,9 @@ const Frame& RawFrame() {
 
 // Which stage implementations a pipeline benchmark uses.
 enum class Variant {
-  kReference,          // Pre-optimization code, one thread inside each stage.
-  kOptimized1Thread,   // Optimized code, one thread inside each stage.
-  kOptimized,          // Optimized code, row bands on all hardware threads.
+  kReference,         // Pre-optimization code, one thread inside each stage.
+  kOptimized1Thread,  // Optimized code, one thread inside each stage.
+  kOptimized,         // Optimized code, row bands on all hardware threads.
 };
 
 std::vector<std::unique_ptr<Stage>> MakeIspStages(
@@ -117,7 +118,7 @@ std::vector<std::unique_ptr<Stage>> MakeIspStages(
 // Runs stage `index` of the ISP repeatedly on the frame produced by the stages
 // before it.
 void BM_Stage(benchmark::State& state, size_t index,
-              std::function<std::unique_ptr<Stage>()> make_stage) {
+              const std::function<std::unique_ptr<Stage>()>& make_stage) {
   std::vector<std::unique_ptr<Stage>> stages = MakeIspStages();
   Frame input = RawFrame();
   for (size_t i = 0; i < index; ++i) {
@@ -141,9 +142,9 @@ void BM_Stage(benchmark::State& state, size_t index,
     benchmark::DoNotOptimize(frame.rgb.pixels().data());
     benchmark::ClobberMemory();
   }
-  state.counters["MP/s"] = benchmark::Counter(
-      static_cast<double>(kWidth) * kHeight / 1e6,
-      benchmark::Counter::kIsIterationInvariantRate);
+  state.counters["MP/s"] =
+      benchmark::Counter(static_cast<double>(kWidth) * kHeight / 1e6,
+                         benchmark::Counter::kIsIterationInvariantRate);
 }
 
 template <typename StageT>
@@ -230,7 +231,8 @@ std::function<std::unique_ptr<Stage>()> MakeBilateral(
   };
 }
 BENCHMARK_CAPTURE(BM_Stage, bilateral_reference_1thread, 5,
-                  MakeBilateral(BilateralOptions::Implementation::kReference, 1))
+                  MakeBilateral(BilateralOptions::Implementation::kReference,
+                                1))
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime();
 BENCHMARK_CAPTURE(BM_Stage, bilateral_lut_1thread, 5,
@@ -306,7 +308,7 @@ void BM_Pipeline(benchmark::State& state, bool threaded, Variant variant) {
       }
     }
     if (!status.ok()) {
-      state.SkipWithError(status.ToString().c_str());
+      state.SkipWithError(status.ToString());
       return;
     }
     total_frames += num_frames;
@@ -322,8 +324,7 @@ void BM_Pipeline(benchmark::State& state, bool threaded, Variant variant) {
 // The argument is the number of frames; one iteration streams all of them.
 // Pass a larger count with --benchmark_filter and a custom run if needed; see
 // the README for the configurations used.
-BENCHMARK_CAPTURE(BM_Pipeline, reference_sequential, false,
-                  Variant::kReference)
+BENCHMARK_CAPTURE(BM_Pipeline, reference_sequential, false, Variant::kReference)
     ->Args({16, 0})
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime()
@@ -333,8 +334,7 @@ BENCHMARK_CAPTURE(BM_Pipeline, reference_threaded, true, Variant::kReference)
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime()
     ->Iterations(1);
-BENCHMARK_CAPTURE(BM_Pipeline, optimized_sequential, false,
-                  Variant::kOptimized)
+BENCHMARK_CAPTURE(BM_Pipeline, optimized_sequential, false, Variant::kOptimized)
     ->Args({16, 0})
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime()

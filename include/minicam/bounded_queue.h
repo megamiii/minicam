@@ -30,8 +30,13 @@ class BoundedQueue {
   explicit BoundedQueue(size_t capacity)
       : slots_(capacity < 1 ? 1 : capacity) {}
 
+  // Not copyable or movable: threads hold references to the queue and its
+  // mutex.
   BoundedQueue(const BoundedQueue&) = delete;
   BoundedQueue& operator=(const BoundedQueue&) = delete;
+  BoundedQueue(BoundedQueue&&) = delete;
+  BoundedQueue& operator=(BoundedQueue&&) = delete;
+  ~BoundedQueue() = default;
 
   // Blocks while the queue is full. Returns false (and drops `item`) if the
   // queue is or becomes closed before there is room.

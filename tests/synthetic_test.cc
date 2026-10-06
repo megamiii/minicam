@@ -72,7 +72,7 @@ TEST(SyntheticRawTest, NoiseHasExpectedStandardDeviation) {
     sum += v;
     sum_sq += static_cast<double>(v) * v;
   }
-  const double n = static_cast<double>(frame.bayer.size());
+  const auto n = static_cast<double>(frame.bayer.size());
   const double mean = sum / n;
   const double stddev = std::sqrt(sum_sq / n - mean * mean);
   const double expected_stddev = std::sqrt(

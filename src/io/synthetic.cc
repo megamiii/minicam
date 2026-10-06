@@ -31,7 +31,7 @@ Status MosaicLinearRgb(const Image<float>& linear_rgb,
 
   const bool add_noise = options.shot_noise > 0.0f || options.read_noise > 0.0f;
   const float read_variance = options.read_noise * options.read_noise;
-  const float range =
+  const auto range =
       static_cast<float>(options.white_level - options.black_level);
   const float black = options.black_level;
   const float white = options.white_level;

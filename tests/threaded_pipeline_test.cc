@@ -27,8 +27,6 @@
 namespace minicam {
 namespace {
 
-using std::chrono_literals::operator""ms;
-
 // Tracks how many stages are inside Process() at the same time.
 struct Concurrency {
   std::atomic<int> active{0};
@@ -38,8 +36,10 @@ struct Concurrency {
 // Adds `value` to meta.exposure_time_s, optionally sleeping to simulate work.
 class AddStage : public Stage {
  public:
-  explicit AddStage(double value, std::chrono::milliseconds work = 0ms,
-                    Concurrency* concurrency = nullptr)
+  explicit AddStage(
+      double value,
+      std::chrono::milliseconds work = std::chrono::milliseconds(0),
+      Concurrency* concurrency = nullptr)
       : value_(value), work_(work), concurrency_(concurrency) {}
   std::string_view Name() const override { return "add"; }
   Status Process(Frame& frame) override {
@@ -50,7 +50,8 @@ class AddStage : public Stage {
              !concurrency_->max_active.compare_exchange_weak(prev, now)) {
       }
     }
-    if (work_ > 0ms) std::this_thread::sleep_for(work_);
+    if (work_ > std::chrono::milliseconds(0))
+      std::this_thread::sleep_for(work_);
     frame.meta.exposure_time_s += value_;
     if (concurrency_ != nullptr) concurrency_->active.fetch_sub(1);
     return OkStatus();
@@ -122,7 +123,8 @@ TEST(ThreadedPipelineTest, StagesRunConcurrently) {
   Concurrency concurrency;
   ThreadedPipeline pipeline;
   for (int i = 0; i < 3; ++i) {
-    pipeline.Add(std::make_unique<AddStage>(1.0, 10ms, &concurrency));
+    pipeline.Add(std::make_unique<AddStage>(1.0, std::chrono::milliseconds(10),
+                                            &concurrency));
   }
   ASSERT_TRUE(
       pipeline
@@ -198,11 +200,11 @@ TEST(ThreadedPipelineTest, SinkErrorIsReported) {
 
 TEST(ThreadedPipelineTest, CancelStopsARunFromAnotherThread) {
   ThreadedPipeline pipeline;
-  pipeline.Add(std::make_unique<AddStage>(1.0, 1ms));
+  pipeline.Add(std::make_unique<AddStage>(1.0, std::chrono::milliseconds(1)));
   pipeline.Cancel();  // No active run: does nothing.
 
   std::thread canceller([&] {
-    std::this_thread::sleep_for(30ms);
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
     pipeline.Cancel();
   });
   Status status =

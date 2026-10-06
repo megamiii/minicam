@@ -21,6 +21,7 @@ class Pipeline {
   Pipeline& operator=(const Pipeline&) = delete;
   Pipeline(Pipeline&&) = default;
   Pipeline& operator=(Pipeline&&) = default;
+  ~Pipeline() = default;
 
   // Appends a stage. Returns *this so calls can be chained.
   Pipeline& Add(std::unique_ptr<Stage> stage);

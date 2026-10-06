@@ -1,7 +1,7 @@
 #include "minicam/frame_pool.h"
 
-#include <cstdio>
 #include <cstdlib>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -42,9 +42,9 @@ FramePool::~FramePool() {
   // A Handle outliving its pool would later write to freed memory. Fail
   // loudly instead.
   if (free_.size() != frames_.size()) {
-    std::fprintf(stderr,
-                 "FramePool destroyed while %zu of %zu frames are lent out\n",
-                 frames_.size() - free_.size(), frames_.size());
+    std::cerr << "FramePool destroyed while " << frames_.size() - free_.size()
+              << " of " << frames_.size() << " frames are lent out"
+              << std::endl;
     std::abort();
   }
 }
@@ -53,7 +53,7 @@ FramePool::Handle FramePool::TakeLocked() {
   Frame* frame = free_.back();
   free_.pop_back();
   frame->meta = FrameMetadata{};
-  return Handle(this, frame);
+  return {this, frame};
 }
 
 FramePool::Handle FramePool::Acquire() {

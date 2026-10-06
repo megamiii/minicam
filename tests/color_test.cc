@@ -23,7 +23,7 @@ TEST(ColorTest, MidGrayIsDarkerInLinearLight) {
 
 TEST(ColorTest, RoundTrip) {
   for (int i = 0; i <= 100; ++i) {
-    const float v = i / 100.0f;
+    const float v = static_cast<float>(i) / 100.0f;
     EXPECT_NEAR(LinearToSrgb(SrgbToLinear(v)), v, 1e-5f);
   }
 }

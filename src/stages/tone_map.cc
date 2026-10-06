@@ -84,7 +84,8 @@ Status ToneMapStage::ProcessReference(Image<float>& rgb) {
   }
   const auto rank = static_cast<size_t>(options_.white_percentile *
                                         static_cast<float>(num_pixels - 1));
-  std::nth_element(luminance_.begin(), luminance_.begin() + rank,
+  std::nth_element(luminance_.begin(),
+                   luminance_.begin() + static_cast<std::ptrdiff_t>(rank),
                    luminance_.end());
   const float white = std::max(luminance_[rank], 1.0f);
   const float inv_white_sq = 1.0f / (white * white);
@@ -151,7 +152,8 @@ Status ToneMapStage::ProcessFast(Image<float>& rgb) {
   });
   const auto rank = static_cast<size_t>(options_.white_percentile *
                                         static_cast<float>(num_pixels - 1));
-  std::nth_element(luminance_.begin(), luminance_.begin() + rank,
+  std::nth_element(luminance_.begin(),
+                   luminance_.begin() + static_cast<std::ptrdiff_t>(rank),
                    luminance_.end());
   const float white = std::max(luminance_[rank], 1.0f);
   const float inv_white_sq = 1.0f / (white * white);

@@ -53,8 +53,11 @@ class ThreadedPipeline {
   using FrameSink = std::function<Status(Frame& frame)>;
 
   explicit ThreadedPipeline(ThreadedPipelineOptions options = {});
+  // Not copyable or movable: worker threads refer to the pipeline.
   ThreadedPipeline(const ThreadedPipeline&) = delete;
   ThreadedPipeline& operator=(const ThreadedPipeline&) = delete;
+  ThreadedPipeline(ThreadedPipeline&&) = delete;
+  ThreadedPipeline& operator=(ThreadedPipeline&&) = delete;
   ~ThreadedPipeline();
 
   // Appends a stage. Must not be called while Run() is active, nor after the

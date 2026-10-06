@@ -36,8 +36,8 @@ std::array<float, 3> EstimateGrayWorldGains(const Image<float>& rgb) {
   }
 
   const size_t total = static_cast<size_t>(rgb.width()) * rgb.height();
-  const bool use_all =
-      static_cast<double>(usable_count) < kMinUsableFraction * total;
+  const bool use_all = static_cast<double>(usable_count) <
+                       kMinUsableFraction * static_cast<double>(total);
   const std::array<double, 3>& sum = use_all ? all_sum : usable_sum;
 
   std::array<float, 3> gains = {1.0f, 1.0f, 1.0f};

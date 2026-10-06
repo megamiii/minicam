@@ -1,5 +1,6 @@
 #include "minicam/hog.h"
 
+#include <array>
 #include <cmath>
 #include <random>
 #include <vector>
@@ -79,7 +80,7 @@ TEST(HogTest, IntegralHistogramMatchesBruteForce) {
   };
   for (const Rect& r : {Rect{0, 0, 8, 8}, Rect{3, 5, 8, 8}, Rect{13, 7, 21, 30},
                         Rect{0, 0, 50, 37}}) {
-    double expected[kHogBins] = {};
+    std::array<double, kHogBins> expected{};
     for (int y = r.y; y < r.y + r.h; ++y) {
       for (int x = r.x; x < r.x + r.w; ++x) {
         expected[gradients.bin.at(x, y)] += gradients.magnitude.at(x, y);

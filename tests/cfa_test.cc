@@ -1,5 +1,7 @@
 #include "minicam/cfa.h"
 
+#include <array>
+
 #include <gtest/gtest.h>
 
 namespace minicam {
@@ -23,7 +25,7 @@ TEST(CfaTest, NegativeCoordinatesKeepParity) {
 TEST(CfaTest, EveryPatternHasTwoGreensOneRedOneBlue) {
   for (CfaPattern p : {CfaPattern::kRggb, CfaPattern::kBggr, CfaPattern::kGrbg,
                        CfaPattern::kGbrg}) {
-    int counts[3] = {0, 0, 0};
+    std::array<int, 3> counts = {0, 0, 0};
     for (int y = 0; y < 2; ++y) {
       for (int x = 0; x < 2; ++x) ++counts[CfaColorAt(p, x, y)];
     }

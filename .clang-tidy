@@ -1,7 +1,22 @@
 ---
 # Google style plus bug-finding and modernization checks. Rules that conflict
-# with the Google C++ Style Guide or are pure noise for image-processing code
-# (magic numbers in filter kernels, short loop variable names) are disabled.
+# with the Google C++ Style Guide or are pure noise for this code are
+# disabled, each for a stated reason:
+#   magic-numbers                filter kernels and color coefficients are
+#                                literal constants by nature
+#   identifier-length            x, y, c, dx are the clearest names in pixel
+#                                loops
+#   pro-bounds-*                 pointer arithmetic over image rows is the
+#                                point of the hot loops
+#   use-nodiscard                Google style does not mark every getter;
+#                                [[nodiscard]] is used where it matters
+#                                (Status, StatusOr)
+#   uppercase-literal-suffix     Google style writes 1.0f
+#   braces-around-statements     Google style allows one-line if statements
+#   easily-swappable-parameters  (x, y, width, height) signatures are the
+#                                norm for image code
+#   cert-err58-cpp               static objects in tests and benchmarks
+#                                (gtest/benchmark registration)
 Checks: >
   -*,
   bugprone-*,
@@ -15,24 +30,36 @@ Checks: >
   -cppcoreguidelines-pro-bounds-constant-array-index,
   -cppcoreguidelines-avoid-non-const-global-variables,
   google-*,
+  -google-readability-braces-around-statements,
   misc-*,
   -misc-non-private-member-variables-in-classes,
   modernize-*,
   -modernize-use-trailing-return-type,
+  -modernize-use-nodiscard,
   performance-*,
   readability-*,
   -readability-magic-numbers,
   -readability-identifier-length,
-  -readability-function-cognitive-complexity
+  -readability-function-cognitive-complexity,
+  -readability-uppercase-literal-suffix,
+  -readability-braces-around-statements
 WarningsAsErrors: ''
-HeaderFilterRegex: '(include|src|tools)/.*'
+# Only this project's headers; third-party headers under the build tree's
+# _deps/ are excluded.
+HeaderFilterRegex: '.*/minicam/(include|src|tools|tests|bench)/.*'
 CheckOptions:
   - { key: readability-identifier-naming.ClassCase,           value: CamelCase }
   - { key: readability-identifier-naming.StructCase,          value: CamelCase }
   - { key: readability-identifier-naming.FunctionCase,        value: CamelCase }
+  - { key: readability-identifier-naming.MethodCase,          value: CamelCase }
+  # Google style: accessors and mutators may be named like variables.
+  - { key: readability-identifier-naming.FunctionIgnoredRegexp, value: '^[a-z][a-z0-9_]*$' }
+  - { key: readability-identifier-naming.MethodIgnoredRegexp,   value: '^[a-z][a-z0-9_]*$' }
   - { key: readability-identifier-naming.VariableCase,        value: lower_case }
   - { key: readability-identifier-naming.PrivateMemberSuffix, value: _ }
   - { key: readability-identifier-naming.ConstexprVariablePrefix, value: k }
   - { key: readability-identifier-naming.ConstexprVariableCase,   value: CamelCase }
   - { key: readability-identifier-naming.NamespaceCase,       value: lower_case }
+  # An interface may declare only a virtual destructor (Stage).
+  - { key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor, value: true }
 ...

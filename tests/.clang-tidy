@@ -1,0 +1,12 @@
+---
+# Tests: the project configuration, minus checks triggered by GoogleTest's
+# macros or contrary to what tests need.
+#   owning-memory   TEST() registers test objects with `new` inside gtest
+#   cert-msc32/51   tests seed random generators with constants on purpose,
+#                   so failures are reproducible
+InheritParentConfig: true
+Checks: >
+  -cppcoreguidelines-owning-memory,
+  -cert-msc32-c,
+  -cert-msc51-cpp
+...

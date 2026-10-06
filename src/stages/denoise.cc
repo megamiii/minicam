@@ -1,7 +1,9 @@
 #include "minicam/stages/denoise.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <utility>
 
 #include "minicam/parallel.h"
@@ -92,12 +94,13 @@ void BilateralDenoiseStage::FilterRowsReference(const Image<float>& in,
       const int x1 = std::min(x + radius_, width - 1);
       const float* center = &in.at(x, y);
 
-      float sum[3] = {0.0f, 0.0f, 0.0f};
+      std::array<float, 3> sum = {0.0f, 0.0f, 0.0f};
       float weight_sum = 0.0f;
       for (int qy = y0; qy <= y1; ++qy) {
         // Points at the window's center column, indexed by qx - x.
         const float* row_weights =
-            spatial_weights_.data() + (qy - y + radius_) * size + radius_;
+            spatial_weights_.data() +
+            static_cast<ptrdiff_t>(qy - y + radius_) * size + radius_;
         for (int qx = x0; qx <= x1; ++qx) {
           const float* q = &in.at(qx, qy);
           const float d0 = q[0] - center[0];
@@ -147,7 +150,8 @@ void BilateralDenoiseStage::FilterRowsLookupTable(const Image<float>& in,
       float weight_sum = 0.0f;
       for (int qy = y0; qy <= y1; ++qy) {
         const float* row_weights =
-            spatial_weights_.data() + (qy - y + radius_) * size + radius_;
+            spatial_weights_.data() +
+            static_cast<ptrdiff_t>(qy - y + radius_) * size + radius_;
         const float* q = &in.at(x0, qy);
         for (int qx = x0; qx <= x1; ++qx, q += 3) {
           const float d0 = q[0] - c0;
@@ -155,9 +159,12 @@ void BilateralDenoiseStage::FilterRowsLookupTable(const Image<float>& in,
           const float d2 = q[2] - c2;
           // Nearest table entry; every distance past the cutoff lands on the
           // final zero entry, so no branch is needed.
-          const int index = std::min(
-              static_cast<int>((d0 * d0 + d1 * d1 + d2 * d2) * scale + 0.5f),
-              kRangeLutSize);
+          // The position is never negative, so truncating after adding 0.5
+          // rounds correctly, without a call to lround in the hottest loop.
+          const float position = (d0 * d0 + d1 * d1 + d2 * d2) * scale;
+          // NOLINTNEXTLINE(bugprone-incorrect-roundings): position >= 0.
+          const int rounded = static_cast<int>(position + 0.5f);
+          const int index = std::min(rounded, kRangeLutSize);
           const float w = row_weights[qx - x] * lut[index];
           sum0 += w * q[0];
           sum1 += w * q[1];

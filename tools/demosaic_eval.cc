@@ -15,6 +15,7 @@
 // Prints a Markdown table.
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <filesystem>
 #include <iomanip>
@@ -89,7 +90,7 @@ int main(int argc, char** argv) {
   minicam::BilinearDemosaicStage bilinear;
   minicam::MalvarDemosaicStage malvar;
   // [domain][method] running sums for the mean row.
-  double sums[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
+  std::array<std::array<double, 2>, 2> sums{};
 
   std::cout << "PSNR in dB, RGGB, border " << border << " px excluded.\n\n"
             << "| Image | sRGB: bilinear | sRGB: Malvar | linear: bilinear | "
@@ -104,8 +105,9 @@ int main(int argc, char** argv) {
     if (!linear.ok()) return Fail(linear.status().ToString());
 
     std::cout << "| " << file.filename().string();
-    const minicam::Image<float>* domains[2] = {&*encoded, &*linear};
-    minicam::Stage* methods[2] = {&bilinear, &malvar};
+    const std::array<const minicam::Image<float>*, 2> domains = {&*encoded,
+                                                                 &*linear};
+    const std::array<minicam::Stage*, 2> methods = {&bilinear, &malvar};
     for (int d = 0; d < 2; ++d) {
       for (int m = 0; m < 2; ++m) {
         auto psnr = Evaluate(*domains[d], *methods[m], border);
@@ -119,8 +121,8 @@ int main(int argc, char** argv) {
 
   const auto n = static_cast<double>(files.size());
   std::cout << "| **Mean (" << files.size() << " images)**";
-  for (int d = 0; d < 2; ++d) {
-    for (int m = 0; m < 2; ++m) std::cout << " | **" << sums[d][m] / n << "**";
+  for (const std::array<double, 2>& domain : sums) {
+    for (double sum : domain) std::cout << " | **" << sum / n << "**";
   }
   std::cout << " |\n";
   return 0;

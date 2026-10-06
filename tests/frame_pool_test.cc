@@ -15,8 +15,6 @@
 namespace minicam {
 namespace {
 
-using std::chrono_literals::operator""ms;
-
 TEST(FramePoolTest, LendsDistinctFramesUpToItsSize) {
   FramePool pool(3);
   EXPECT_EQ(pool.size(), 3u);
@@ -89,7 +87,7 @@ TEST(FramePoolTest, AcquireBlocksUntilAFrameIsReturned) {
     FramePool::Handle h = pool.Acquire();
     acquired = static_cast<bool>(h);
   });
-  std::this_thread::sleep_for(50ms);
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
   EXPECT_FALSE(acquired);
   held.Release();
   waiter.join();
@@ -101,7 +99,7 @@ TEST(FramePoolTest, CloseWakesBlockedAcquire) {
   FramePool::Handle held = pool.Acquire();
   bool got_frame = true;
   std::thread waiter([&] { got_frame = static_cast<bool>(pool.Acquire()); });
-  std::this_thread::sleep_for(20ms);
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
   pool.Close();
   waiter.join();
   EXPECT_FALSE(got_frame);
@@ -127,6 +125,7 @@ TEST(FramePoolTest, StressNeverLendsMoreThanItsSize) {
   std::atomic<int> consumed{0};
 
   std::vector<std::thread> consumers;
+  consumers.reserve(kConsumers);
   for (int c = 0; c < kConsumers; ++c) {
     consumers.emplace_back([&] {
       while (std::optional<FramePool::Handle> handle = queue.Pop()) {

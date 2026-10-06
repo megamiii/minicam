@@ -86,7 +86,9 @@ TYPED_TEST(DemosaicTest, LinearRampIsExactAwayFromBorders) {
   for (int y = 0; y < 12; ++y) {
     for (int x = 0; x < 16; ++x) {
       for (int c = 0; c < 3; ++c) {
-        ramp.at(x, y, c) = 0.03f * x + 0.02f * y + 0.1f * c;
+        ramp.at(x, y, c) = 0.03f * static_cast<float>(x) +
+                           0.02f * static_cast<float>(y) +
+                           0.1f * static_cast<float>(c);
       }
     }
   }

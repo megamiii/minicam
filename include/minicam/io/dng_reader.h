@@ -35,6 +35,8 @@ class DngReader {
   ~DngReader();
   DngReader(const DngReader&) = delete;
   DngReader& operator=(const DngReader&) = delete;
+  DngReader(DngReader&&) = delete;
+  DngReader& operator=(DngReader&&) = delete;
 
   Status Read(const std::string& path, Frame& frame);
 

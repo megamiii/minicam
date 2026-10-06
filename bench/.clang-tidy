@@ -1,0 +1,13 @@
+---
+# Benchmarks: the project configuration, minus checks triggered by Google
+# Benchmark's registration macros (BENCHMARK_CAPTURE allocates with `new`,
+# BENCHMARK_MAIN declares a C array), and allowing its BM_ naming convention.
+InheritParentConfig: true
+Checks: >
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-avoid-c-arrays,
+  -modernize-avoid-c-arrays,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay
+CheckOptions:
+  - { key: readability-identifier-naming.FunctionIgnoredRegexp, value: '^(BM_[A-Za-z]+|[a-z][a-z0-9_]*)$' }
+...

@@ -98,8 +98,9 @@ TEST(DngReaderHdrPlusTest, ReadsPlausibleSensorMetadata) {
   EXPECT_GT(m.wb_gains[0], 0.0f);
   EXPECT_GT(m.wb_gains[2], 0.0f);
   for (int r = 0; r < 3; ++r) {
-    const float row_sum = m.color_matrix[r * 3] + m.color_matrix[r * 3 + 1] +
-                          m.color_matrix[r * 3 + 2];
+    const auto row = static_cast<size_t>(r) * 3;
+    const float row_sum =
+        m.color_matrix[row] + m.color_matrix[row + 1] + m.color_matrix[row + 2];
     EXPECT_NEAR(row_sum, 1.0f, 0.05f) << "row " << r;
   }
   EXPECT_GT(m.exposure_time_s, 0.0);

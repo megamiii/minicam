@@ -20,13 +20,15 @@ constexpr uint32_t kMaxDimension = 1u << 16;
 template <typename T>
 void Put(std::ofstream& out, const T& value) {
   static_assert(std::is_trivially_copyable_v<T>);
-  out.write(reinterpret_cast<const char*>(&value), sizeof(T));
+  // Binary file I/O needs the object's bytes.
+  out.write(reinterpret_cast<const char*>(&value),  // NOLINT
+            sizeof(T));
 }
 
 template <typename T>
 bool Get(std::ifstream& in, T& value) {
   static_assert(std::is_trivially_copyable_v<T>);
-  in.read(reinterpret_cast<char*>(&value), sizeof(T));
+  in.read(reinterpret_cast<char*>(&value), sizeof(T));  // NOLINT
   return static_cast<bool>(in);
 }
 
@@ -55,7 +57,7 @@ Status WriteRawFile(const Frame& frame, const std::string& path) {
   Put(out, m.analog_gain);
   Put(out, m.frame_id);
   Put(out, m.timestamp_ns);
-  out.write(reinterpret_cast<const char*>(raw.pixels().data()),
+  out.write(reinterpret_cast<const char*>(raw.pixels().data()),  // NOLINT
             static_cast<std::streamsize>(raw.size() * sizeof(uint16_t)));
   if (!out) return DataLossError("failed while writing '" + path + "'");
   return OkStatus();
@@ -95,7 +97,7 @@ Status ReadRawFile(const std::string& path, Frame& frame) {
   m.orientation_quarter_turns = orientation & 3;
 
   frame.raw.Resize(static_cast<int>(width), static_cast<int>(height), 1);
-  in.read(reinterpret_cast<char*>(frame.raw.pixels().data()),
+  in.read(reinterpret_cast<char*>(frame.raw.pixels().data()),  // NOLINT
           static_cast<std::streamsize>(frame.raw.size() * sizeof(uint16_t)));
   if (!in) return DataLossError("truncated pixel data in '" + path + "'");
 

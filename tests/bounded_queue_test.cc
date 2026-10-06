@@ -13,8 +13,6 @@
 namespace minicam {
 namespace {
 
-using std::chrono_literals::operator""ms;
-
 TEST(BoundedQueueTest, FifoOrder) {
   BoundedQueue<int> queue(4);
   for (int i = 0; i < 4; ++i) EXPECT_TRUE(queue.Push(i));
@@ -52,7 +50,7 @@ TEST(BoundedQueueTest, PushBlocksWhileFull) {
   });
   // A sleep can only make this check miss a bug, never fail a correct
   // implementation.
-  std::this_thread::sleep_for(50ms);
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
   EXPECT_FALSE(pushed);
 
   EXPECT_EQ(queue.Pop(), 1);  // Makes room; the producer can finish.
@@ -65,7 +63,7 @@ TEST(BoundedQueueTest, CloseWakesBlockedPop) {
   BoundedQueue<int> queue(1);
   std::optional<int> result = 42;
   std::thread consumer([&] { result = queue.Pop(); });
-  std::this_thread::sleep_for(20ms);
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
   queue.Close();
   consumer.join();
   EXPECT_FALSE(result.has_value());
@@ -76,7 +74,7 @@ TEST(BoundedQueueTest, CloseWakesBlockedPushWhichFails) {
   ASSERT_TRUE(queue.Push(1));
   bool push_result = true;
   std::thread producer([&] { push_result = queue.Push(2); });
-  std::this_thread::sleep_for(20ms);
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
   queue.Close();
   producer.join();
   EXPECT_FALSE(push_result);
@@ -105,12 +103,14 @@ TEST(BoundedQueueTest, StressManyProducersAndConsumers) {
 
   std::vector<std::vector<int>> received(kConsumers);
   std::vector<std::thread> consumers;
+  consumers.reserve(kConsumers);
   for (int c = 0; c < kConsumers; ++c) {
     consumers.emplace_back([&queue, &out = received[c]] {
       while (std::optional<int> item = queue.Pop()) out.push_back(*item);
     });
   }
   std::vector<std::thread> producers;
+  producers.reserve(kProducers);
   for (int p = 0; p < kProducers; ++p) {
     producers.emplace_back([&queue, p] {
       for (int i = 0; i < kItemsPerProducer; ++i) {

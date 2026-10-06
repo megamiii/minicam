@@ -53,8 +53,11 @@ class FramePool {
   };
 
   explicit FramePool(size_t num_frames);
+  // Not copyable or movable: Handles point back at the pool.
   FramePool(const FramePool&) = delete;
   FramePool& operator=(const FramePool&) = delete;
+  FramePool(FramePool&&) = delete;
+  FramePool& operator=(FramePool&&) = delete;
   ~FramePool();
 
   // Blocks until a frame is free. Returns an empty Handle if the pool is or

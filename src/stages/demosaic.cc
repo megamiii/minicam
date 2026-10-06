@@ -1,6 +1,8 @@
 #include "minicam/stages/demosaic.h"
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <string>
 
 #include "minicam/cfa.h"
@@ -53,7 +55,7 @@ Status BilinearDemosaicStage::Process(Frame& frame) {
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
       const int color = CfaColorAt(cfa, x, y);
-      float rgb[3];
+      std::array<float, 3> rgb{};
       rgb[color] = in.at(x, y);
 
       if (color == kGreen) {
@@ -97,7 +99,7 @@ inline void MalvarPixel(const Sampler& p, int color, int horizontal_color,
   const float v2 = p(0, -2) + p(0, 2);
   const float diag = p(-1, -1) + p(1, -1) + p(-1, 1) + p(1, 1);
 
-  float rgb[3];
+  std::array<float, 3> rgb{};
   rgb[color] = center;
   if (color == kGreen) {
     // Color sampled left/right of this pixel, and the one above/below.
@@ -149,33 +151,40 @@ Status MalvarDemosaicStage::Process(Frame& frame) {
   }
 
   constexpr int kReach = 2;
-  ParallelFor(
-      height, ResolveThreadCount(options_.num_threads),
-      [&](int y_begin, int y_end) {
-        for (int y = y_begin; y < y_end; ++y) {
-          float* out_row = out.row(y);
-          const bool border_row = y < kReach || y >= height - kReach;
-          if (border_row || width < 2 * kReach + 1) {
-            for (int x = 0; x < width; ++x) {
-              MalvarPixelMirrored(in, cfa, x, y, out_row + 3 * x);
-            }
-            continue;
-          }
-          // Interior rows: mirrored reads only for the 2 columns at each
-          // end; everything else reads straight from five row pointers.
-          for (int x : {0, 1, width - 2, width - 1}) {
-            MalvarPixelMirrored(in, cfa, x, y, out_row + 3 * x);
-          }
-          const float* rows[5] = {in.row(y - 2), in.row(y - 1), in.row(y),
-                                  in.row(y + 1), in.row(y + 2)};
-          // The CFA colors repeat every 2 pixels along a row.
-          const int colors[2] = {CfaColorAt(cfa, 0, y), CfaColorAt(cfa, 1, y)};
-          for (int x = kReach; x < width - kReach; ++x) {
-            auto p = [&](int dx, int dy) { return rows[dy + 2][x + dx]; };
-            MalvarPixel(p, colors[x & 1], colors[(x + 1) & 1], out_row + 3 * x);
-          }
-        }
-      });
+  ParallelFor(height, ResolveThreadCount(options_.num_threads),
+              [&](int y_begin, int y_end) {
+                for (int y = y_begin; y < y_end; ++y) {
+                  float* out_row = out.row(y);
+                  const bool border_row = y < kReach || y >= height - kReach;
+                  if (border_row || width < 2 * kReach + 1) {
+                    for (int x = 0; x < width; ++x) {
+                      MalvarPixelMirrored(in, cfa, x, y,
+                                          out_row + 3 * static_cast<size_t>(x));
+                    }
+                    continue;
+                  }
+                  // Interior rows: mirrored reads only for the 2 columns at
+                  // each end; everything else reads straight from five row
+                  // pointers.
+                  for (int x : {0, 1, width - 2, width - 1}) {
+                    MalvarPixelMirrored(in, cfa, x, y,
+                                        out_row + 3 * static_cast<size_t>(x));
+                  }
+                  const std::array<const float*, 5> rows = {
+                      in.row(y - 2), in.row(y - 1), in.row(y), in.row(y + 1),
+                      in.row(y + 2)};
+                  // The CFA colors repeat every 2 pixels along a row.
+                  const std::array<int, 2> colors = {CfaColorAt(cfa, 0, y),
+                                                     CfaColorAt(cfa, 1, y)};
+                  for (int x = kReach; x < width - kReach; ++x) {
+                    auto p = [&](int dx, int dy) {
+                      return rows[dy + 2][x + dx];
+                    };
+                    MalvarPixel(p, colors[x & 1], colors[(x + 1) & 1],
+                                out_row + 3 * static_cast<size_t>(x));
+                  }
+                }
+              });
   return OkStatus();
 }
 

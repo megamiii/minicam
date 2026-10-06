@@ -1,6 +1,7 @@
 #include "minicam/stages/face_detect.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <memory>
 #include <numeric>
@@ -55,7 +56,7 @@ std::vector<Detection> NonMaxSuppression(std::vector<Detection> boxes,
 void DrawDetections(const std::vector<Detection>& detections,
                     Image<float>& rgb) {
   constexpr int kThickness = 2;
-  constexpr float kColor[3] = {0.0f, 1.0f, 0.0f};
+  constexpr std::array<float, 3> kColor = {0.0f, 1.0f, 0.0f};
   auto paint = [&](int x, int y) {
     if (x < 0 || y < 0 || x >= rgb.width() || y >= rgb.height()) return;
     for (int c = 0; c < 3; ++c) rgb.at(x, y, c) = kColor[c];
