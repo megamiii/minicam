@@ -23,7 +23,7 @@ It is tested on real RAW bursts from the [Google HDR+ Burst Photography Dataset]
   - Color correction matrix
   - Gamma correction and tone mapping
   - Denoising (bilateral filter)
-  - Optional HOG face detection: a C++ port of a Python HOG + normalized cross-correlation template matcher, made fast with an integral histogram
+  - Optional HOG face detection: a C++ port of a Python HOG + normalized cross-correlation template matcher, made fast with an integral histogram and extended to multiple scales
 - **Camera-HAL-style system design**
   - Thread-per-stage pipeline connected by thread-safe bounded queues
   - Frame buffer pool, so no allocation per frame
@@ -148,19 +148,39 @@ Measured so far on the procedural test scene used in the unit tests (256×192, 1
 
 ### Face detection
 
-`HogFaceDetectionStage` is an optional last stage that finds faces by matching a face template's HOG descriptor (Dalal and Triggs) against every window of the image:
+`HogFaceDetectionStage` is an optional last stage that finds faces by matching a face template's HOG descriptor (Dalal and Triggs) against every window of the image, over a small image pyramid:
 - **HOG features:** Sobel gradients, 6 unsigned orientation bins, 8×8 cells, 2×2-cell blocks normalized to unit length.
 - **Score:** normalized cross-correlation (mean-centered cosine) with the template.
-- **Selection:** a 0.49 threshold, then non-maximum suppression at IoU 0.5.
+- **Scales:** the image is shrunk by each of several integer factors (block averaging) and scanned at each, so faces of different sizes match the one template. Candidates from all scales are converted to full-resolution boxes; NCC scores do not depend on scale, so one non-maximum suppression (IoU 0.5) compares them all.
+- **Selection:** NCC above 0.49, then non-maximum suppression.
 
-It is a C++ port of an earlier Python project. Three things changed:
-- **Gradients once per frame.** They are computed for the whole image instead of again for every window.
+It is a C++ port of an earlier Python project. Four things changed:
+- **Gradients once per scale.** They are computed for the whole image instead of again for every window.
 - **Integral histogram (Porikli 2005).** One integral image per orientation bin gives any cell's histogram in 4 lookups per bin, so windows can move in steps of 3 pixels without recomputing anything.
 - **Greedy non-maximum suppression.** The Python version dropped a box if it overlapped *any* higher-scoring box, even one that was itself dropped, which could delete a correct detection. A unit test covers that case.
+- **Image pyramid.** The Python version was single-scale.
 
-![Two synthetic faces found after the full ISP](docs/images/face_detect_synthetic.png)
+**Demo on real photos.** Two public-domain NASA crew portraits, reproducible with `scripts/download_faces.sh` and `scripts/face_demo.sh`:
+- Each photo is turned into a synthetic RAW frame with sensor noise and run through the full ISP, so the detector sees the pipeline's output, as on a camera.
+- The template is **one face**: the inner face (eyebrows to chin) of the front-left STS-40 astronaut, cut from the ISP output and reduced 5× to 48×48 with `make_face_template`, the same reduction the detector uses.
+- Detection uses the pyramid factors 4–12 and the default threshold 0.49, unchanged from the Python version.
 
-*A synthetic test, not a photo: a cartoon-face template and a target with two copies of it were converted to RAW with sensor noise, run through the full ISP, then through the detector. Both faces are found at their exact positions (NCC 0.89 and 0.89), with no false detections; detection took 28 ms at 320×240. Single scale and a rigid template: it finds faces of about the template's size and pose only (the `downscale` option shrinks the image for larger faces). The CI tests use synthetic faces only.*
+![Template: the inner face of one STS-40 astronaut, 48x48, enlarged 3x](docs/images/face_template.png)
+
+![All seven STS-40 astronauts found](docs/images/faces_sts40.jpg)
+
+![All four Artemis II astronauts found, in a photo the template never saw](docs/images/faces_artemis2.jpg)
+
+| Photo | Faces (excluding the template's own) | Found | Missed | False detections | NCC of found faces | Best non-face NCC |
+|---|---|---|---|---|---|---|
+| STS-40 (same photo as the template, 4038×3230) | 6 | **6** | 0 | 0 | 0.61–0.67 | 0.41 |
+| Artemis II (unseen photo, 5878×7348) | 4 | **4** | 0 | 0 | 0.56–0.62 | 0.40 |
+
+The template's own face scores 0.92 (not 1.0, because the window also sees the pixels around the crop). The "best non-face" column comes from re-running with the threshold lowered to 0.3: the strongest non-faces are partial faces at a neighboring pyramid level (overlap below the 0.5 IoU suppression limit), and plain background stays below 0.39. So 0.49 sits in a gap of about 0.15 on both photos. Detection takes 0.7 s for STS-40 and 2.1 s for the 43-megapixel Artemis photo (9 scales, 8 threads).
+
+**What did not work at first, and why:** the first template covered the whole head, hairline to chin. It found 5 of 6 faces in STS-40 and only 2 of 4 in Artemis II, missing both bald astronauts and the one with tilted, curly hair. HOG responds strongly to the hair outline, so heads with a different outline scored low. The inner-face template above, from the same astronaut, removed that dependence. Both runs are reported because the second template was chosen *after* seeing the first one's misses on these same photos.
+
+**Limits:** this is a demonstration on 2 photos and 10 test faces, not a benchmark. A single rigid template only finds roughly frontal, upright faces, and its threshold and template choice would need tuning on a separate validation set before any real use. A trained detector (HOG + linear SVM, as Dalal and Triggs proposed) is the standard next step. The CI tests use synthetic faces only.
 
 ## Performance
 
@@ -294,7 +314,14 @@ Face detection is an optional last stage. It needs a grayscale face template at 
 
 ```bash
 ./build/minicam --input frame.dng --output out.png --detect-faces template.png \
-    --detect-downscale 4 --ncc-threshold 0.49
+    --detect-downscale 4,5,6,7,8 --ncc-threshold 0.49
+
+# Cut a template from a pipeline output: face box x y width height, factor
+./build/make_face_template out.png template.png 544 1482 240 240 5
+
+# The face detection demo from the README (public-domain NASA photos, ~7.6 MB)
+./scripts/download_faces.sh
+./scripts/face_demo.sh build out/faces
 ```
 
 Comparison images like the ones in [Results](#results) are made with `side_by_side`, which uses OpenCV only to crop, resize and join images for display:
@@ -356,10 +383,10 @@ minicam/
 │   ├── stages/           # ISP stage implementations
 │   ├── pipeline/         # Pipeline, ThreadedPipeline, FramePool
 │   └── io/               # LibRaw DNG reader, .raw reader/writer, synthetic RAW, OpenCV file I/O
-├── tools/                # minicam CLI, make_synthetic_raw, demosaic_eval, side_by_side
+├── tools/                # minicam CLI, make_synthetic_raw, demosaic_eval, side_by_side, make_face_template
 ├── tests/                # GoogleTest unit tests and procedural test scenes
 ├── bench/                # Google Benchmark: per-stage and full-pipeline benchmarks
-├── scripts/              # Dataset downloads (HDR+, Kodak)
+├── scripts/              # Downloads (HDR+, Kodak, face demo photos) and the face detection demo
 ├── docs/                 # README images, result tables, benchmark outputs, profiling notes
 └── .github/workflows/    # CI
 ```
@@ -374,12 +401,12 @@ minicam/
 - [x] **Milestone 3:** camera-HAL-style system: `BoundedQueue` (back-pressure, close/drain), `FramePool` (RAII handles, bounded memory), `ThreadedPipeline` (thread per stage, ordered output, clean shutdown, first-error propagation, cancel), CLI stream mode; 101 unit tests, clean under ASan + UBSan and TSan (threading tests also repeated 50× under TSan)
 - [x] **Milestone 4:** `download_hdrplus.sh` (gsutil, HTTPS fallback), LibRaw `DngReader` (CFA, per-tile black levels, white level, as-shot WB, color matrix, exposure, orientation), HDR+ `rgb2rgb.txt` sidecar matrices, DNG bursts in stream mode, upright output, before/after images and a comparison with Google's HDR+ result; 111 unit tests (DNG tests skip when the dataset is absent)
 - [x] **Milestone 5:** Google Benchmark harness (per stage and full pipeline: FPS, p50/p99 latency), `perf` profiling, three measured optimizations (bilateral 5.26×, tone mapping 6.1×, Malvar 5.4×; reference implementations kept and tested against), sequential vs threaded pipeline and a pool-size latency/throughput sweep; 117 unit tests
-- [x] **Milestone 6:** HOG face detection (C++ port with integral histogram and greedy NMS), clang-tidy clean (0 warnings, every disabled check justified), GitHub Actions CI (GCC + Clang, ASan + UBSan, TSan, clang-tidy, clang-format, in an `ubuntu:22.04` container); 130 unit tests
+- [x] **Milestone 6:** HOG face detection (C++ port with integral histogram, greedy NMS and an image pyramid; demo on two public-domain photos: 10 of 10 test faces found, no false detections), clang-tidy clean (0 warnings, every disabled check justified), GitHub Actions CI (GCC + Clang, ASan + UBSan, TSan, clang-tidy, clang-format, in an `ubuntu:22.04` container); 131 unit tests
 
 ## Roadmap
 
 - [ ] Burst merging (align and merge several frames, in the spirit of HDR+)
-- [ ] Multi-scale face detection (image pyramid) or a trained HOG + linear SVM detector instead of a single template
+- [ ] A trained HOG + linear SVM face detector instead of a single template, evaluated on a held-out set
 - [ ] Lens shading correction (the HDR+ bursts include per-frame gain maps)
 - [ ] Local tone mapping and sharpening
 - [ ] SIMD versions of the stages (the bilateral filter is still ~86% of a frame)
@@ -411,6 +438,8 @@ Test images come from the [HDR+ Burst Photography Dataset](https://hdrplusdata.o
   year    = {2016},
 }
 ```
+
+The face detection demo uses two NASA crew portraits from Wikimedia Commons, both in the public domain as works of NASA: the [STS-40 crew portrait](https://commons.wikimedia.org/wiki/File:STS-40_crew.jpg) (NASA) and the [Artemis II crew portrait](https://commons.wikimedia.org/wiki/File:Artemis_2_Crew_Portrait.jpg) (NASA/Josh Valcarcel). `docs/images/faces_*.jpg` and `face_template.png` are derived from them. They are not stored in this repository.
 
 Demosaicing quality is measured on the [Kodak Lossless True Color Image Suite](https://r0k.us/graphics/kodak/) (PhotoCD PCD0992), which Eastman Kodak released for unrestricted use. These images are not stored in this repository either.
 
