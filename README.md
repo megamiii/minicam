@@ -1,5 +1,7 @@
 # minicam
 
+[![CI](https://github.com/megamiii/minicam/actions/workflows/ci.yml/badge.svg)](https://github.com/megamiii/minicam/actions/workflows/ci.yml)
+
 A multi-threaded camera image signal processing (ISP) pipeline in modern C++, which turns RAW Bayer sensor data into finished RGB images.
 
 minicam takes the raw output of a camera sensor and runs it through the stages a phone camera uses to produce a photo: black-level subtraction, demosaicing, white balance, color correction, tone mapping and denoising. The pipeline is designed like a simplified camera HAL. Each stage runs on its own thread, frames move through bounded queues, and frame memory comes from a reusable buffer pool, so several frames can be processed at once.
@@ -10,7 +12,7 @@ It is tested on real RAW bursts from the [Google HDR+ Burst Photography Dataset]
 
 *Left: the black-level-corrected Bayer mosaic of one frame from the HDR+ dataset (burst `0006_20160722_115157_431`, frame 0), shown as grayscale: one color sample per pixel. Right: minicam's output with the default pipeline (Malvar demosaicing, gray-world AWB, the burst's `rgb2rgb.txt` color matrix, Reinhard tone mapping, bilateral denoising). Image from the HDR+ dataset, CC BY-SA 4.0.*
 
-> **Status:** work in progress. Milestones 1–5 are done: all six ISP stages, a single-threaded and a thread-per-stage pipeline with bounded queues and a frame buffer pool, real DNG input from the HDR+ dataset via LibRaw, Kodak demosaicing results, and benchmarked, profiled optimizations (5.3× pipeline throughput). CI, clang-tidy and HOG face detection come next. See [Progress](#progress).
+> **Status:** all six planned milestones are done: the six ISP stages plus optional HOG face detection, a single-threaded and a thread-per-stage pipeline with bounded queues and a frame buffer pool, real DNG input from the HDR+ dataset, Kodak demosaicing results, profiled optimizations (5.3× pipeline throughput), and a clang-tidy-clean codebase with a CI workflow. See [Progress](#progress) and the [Roadmap](#roadmap) for what could come next.
 
 ## Features
 
@@ -21,7 +23,7 @@ It is tested on real RAW bursts from the [Google HDR+ Burst Photography Dataset]
   - Color correction matrix
   - Gamma correction and tone mapping
   - Denoising (bilateral filter)
-  - Optional HOG-based face detection
+  - Optional HOG face detection: a C++ port of a Python HOG + normalized cross-correlation template matcher, made fast with an integral histogram
 - **Camera-HAL-style system design**
   - Thread-per-stage pipeline connected by thread-safe bounded queues
   - Frame buffer pool, so no allocation per frame
@@ -33,8 +35,9 @@ It is tested on real RAW bursts from the [Google HDR+ Burst Photography Dataset]
   - Stream mode for processing frame sequences and bursts
 - **Engineering**
   - CMake build, GoogleTest unit tests, Google Benchmark performance tests
-  - AddressSanitizer and ThreadSanitizer clean
-  - GitHub Actions CI, clang-format, clang-tidy, Google C++ Style Guide
+  - AddressSanitizer + UndefinedBehaviorSanitizer and ThreadSanitizer clean
+  - clang-tidy clean (0 warnings) and clang-format checked, Google C++ Style Guide
+  - GitHub Actions CI: GCC and Clang builds, sanitizers, clang-tidy, clang-format, all on synthetic data
 
 ## Architecture
 
@@ -143,6 +146,22 @@ Measured so far on the procedural test scene used in the unit tests (256×192, 1
 
 **Denoising** (unit test, test scene in display values plus Gaussian noise σ = 0.03): the bilateral filter (σ_s = 2, σ_r = 0.08) raises PSNR from **30.42 dB to 41.31 dB**.
 
+### Face detection
+
+`HogFaceDetectionStage` is an optional last stage that finds faces by matching a face template's HOG descriptor (Dalal and Triggs) against every window of the image:
+- **HOG features:** Sobel gradients, 6 unsigned orientation bins, 8×8 cells, 2×2-cell blocks normalized to unit length.
+- **Score:** normalized cross-correlation (mean-centered cosine) with the template.
+- **Selection:** a 0.49 threshold, then non-maximum suppression at IoU 0.5.
+
+It is a C++ port of an earlier Python project. Three things changed:
+- **Gradients once per frame.** They are computed for the whole image instead of again for every window.
+- **Integral histogram (Porikli 2005).** One integral image per orientation bin gives any cell's histogram in 4 lookups per bin, so windows can move in steps of 3 pixels without recomputing anything.
+- **Greedy non-maximum suppression.** The Python version dropped a box if it overlapped *any* higher-scoring box, even one that was itself dropped, which could delete a correct detection. A unit test covers that case.
+
+![Two synthetic faces found after the full ISP](docs/images/face_detect_synthetic.png)
+
+*A synthetic test, not a photo: a cartoon-face template and a target with two copies of it were converted to RAW with sensor noise, run through the full ISP, then through the detector. Both faces are found at their exact positions (NCC 0.89 and 0.89), with no false detections; detection took 28 ms at 320×240. Single scale and a rigid template: it finds faces of about the template's size and pose only (the `downscale` option shrinks the image for larger faces). The CI tests use synthetic faces only.*
+
 ## Performance
 
 Measured with Google Benchmark (v1.8.3) on an **Intel Core i7-10510U** laptop CPU (4 cores / 8 threads, 1.8 GHz base, up to 4.9 GHz turbo, 8 MB L3), 7.7 GiB of RAM available to **WSL2 (Ubuntu 22.04)**, **GCC 11.4, `-O3`**. Image size **4048×3036 (12.3 MP)**, the HDR+ sensor size; inputs are synthetic so the benchmark needs no dataset.
@@ -209,7 +228,8 @@ Profiled with `perf record` / `perf stat` on a `-O3 -g -fno-omit-frame-pointer` 
 On Ubuntu 22.04:
 
 ```bash
-sudo apt install build-essential cmake ninja-build pkg-config libraw-dev libopencv-dev
+sudo apt install build-essential cmake ninja-build libraw-dev libopencv-dev
+# Optional, for the static checks: clang-14 clang-tidy-14 clang-format-14
 ```
 
 GoogleTest (and later Google Benchmark) are downloaded at a pinned version by CMake, so local builds and CI use the same version.
@@ -270,6 +290,13 @@ Stream mode processes every `.dng`/`.raw` file in a folder (for example a whole 
 ./build/minicam --input data/hdrplus/<burst>/ --output out/ --mode threaded     # or --mode sequential
 ```
 
+Face detection is an optional last stage. It needs a grayscale face template at the detection scale; the boxes are drawn into the output and printed:
+
+```bash
+./build/minicam --input frame.dng --output out.png --detect-faces template.png \
+    --detect-downscale 4 --ncc-threshold 0.49
+```
+
 Comparison images like the ones in [Results](#results) are made with `side_by_side`, which uses OpenCV only to crop, resize and join images for display:
 
 ```bash
@@ -293,6 +320,20 @@ setarch "$(uname -m)" -R ctest --test-dir build-tsan --output-on-failure
 
 `setarch -R` disables address-space randomization for the test process only. GCC 11's ThreadSanitizer runtime fails with `unexpected memory mapping` on recent kernels, which randomize more address bits than it expects.
 
+Static checks, as run in CI:
+
+```bash
+find include src tests tools bench -name '*.h' -o -name '*.cc' | xargs clang-format-14 --dry-run --Werror
+run-clang-tidy-14 -p build -quiet $(ls src/*/*.cc tools/*.cc tests/*.cc bench/*.cc)
+```
+
+**Continuous integration** (`.github/workflows/ci.yml`) runs every job in an `ubuntu:22.04` container, which is the toolchain the project is developed and measured with, so CI does not change when GitHub updates its runner images. Jobs:
+- build and test with GCC and with Clang (`-Werror`), plus a benchmark smoke run;
+- AddressSanitizer + UBSan;
+- ThreadSanitizer (under `setarch -R`);
+- clang-format and clang-tidy, failing on any warning.
+
+CI uses synthetic data only; the HDR+ tests skip themselves when `data/` is absent. The clang-tidy configuration lists every disabled check with its reason (rules that conflict with the Google style, or that GoogleTest and Google Benchmark macros trigger).
 # Demosaicing quality on the Kodak set (24 PNGs, ~15 MB, into data/kodak/)
 ./scripts/download_kodak.sh
 ./build/demosaic_eval data/kodak
@@ -304,16 +345,14 @@ setarch "$(uname -m)" -R ctest --test-dir build-tsan --output-on-failure
 
 ## Project structure
 
-<!-- TODO: update when CI is added -->
-
 ```
 minicam/
 ├── include/minicam/      # Public headers: Status, Image, Frame, Stage, Pipeline, ThreadedPipeline,
-│                         #   BoundedQueue, FramePool, ParallelFor, CFA, color, metrics
-│   ├── stages/           # Black level, demosaic, white balance, CCM, tone map, denoise
+│                         #   BoundedQueue, FramePool, ParallelFor, CFA, color, metrics, HOG
+│   ├── stages/           # Black level, demosaic, white balance, CCM, tone map, denoise, face detection
 │   └── io/               # DNG reader, RAW container, synthetic RAW, image file I/O
 ├── src/
-│   ├── core/             # Status, CFA, color transfer, PSNR
+│   ├── core/             # Status, CFA, color transfer, PSNR, HOG features
 │   ├── stages/           # ISP stage implementations
 │   ├── pipeline/         # Pipeline, ThreadedPipeline, FramePool
 │   └── io/               # LibRaw DNG reader, .raw reader/writer, synthetic RAW, OpenCV file I/O
@@ -321,7 +360,8 @@ minicam/
 ├── tests/                # GoogleTest unit tests and procedural test scenes
 ├── bench/                # Google Benchmark: per-stage and full-pipeline benchmarks
 ├── scripts/              # Dataset downloads (HDR+, Kodak)
-└── docs/                 # README images, result tables, benchmark outputs, profiling notes
+├── docs/                 # README images, result tables, benchmark outputs, profiling notes
+└── .github/workflows/    # CI
 ```
 
 `minicam_core` (stages, pipeline, synthetic RAW) has no OpenCV dependency. OpenCV is linked only into `minicam_io`, which decodes and encodes image files.
@@ -334,11 +374,12 @@ minicam/
 - [x] **Milestone 3:** camera-HAL-style system: `BoundedQueue` (back-pressure, close/drain), `FramePool` (RAII handles, bounded memory), `ThreadedPipeline` (thread per stage, ordered output, clean shutdown, first-error propagation, cancel), CLI stream mode; 101 unit tests, clean under ASan + UBSan and TSan (threading tests also repeated 50× under TSan)
 - [x] **Milestone 4:** `download_hdrplus.sh` (gsutil, HTTPS fallback), LibRaw `DngReader` (CFA, per-tile black levels, white level, as-shot WB, color matrix, exposure, orientation), HDR+ `rgb2rgb.txt` sidecar matrices, DNG bursts in stream mode, upright output, before/after images and a comparison with Google's HDR+ result; 111 unit tests (DNG tests skip when the dataset is absent)
 - [x] **Milestone 5:** Google Benchmark harness (per stage and full pipeline: FPS, p50/p99 latency), `perf` profiling, three measured optimizations (bilateral 5.26×, tone mapping 6.1×, Malvar 5.4×; reference implementations kept and tested against), sequential vs threaded pipeline and a pool-size latency/throughput sweep; 117 unit tests
-- [ ] **Milestone 6:** CI, sanitizers in CI, clang-tidy, HOG face detection
+- [x] **Milestone 6:** HOG face detection (C++ port with integral histogram and greedy NMS), clang-tidy clean (0 warnings, every disabled check justified), GitHub Actions CI (GCC + Clang, ASan + UBSan, TSan, clang-tidy, clang-format, in an `ubuntu:22.04` container); 130 unit tests
 
 ## Roadmap
 
 - [ ] Burst merging (align and merge several frames, in the spirit of HDR+)
+- [ ] Multi-scale face detection (image pyramid) or a trained HOG + linear SVM detector instead of a single template
 - [ ] Lens shading correction (the HDR+ bursts include per-frame gain maps)
 - [ ] Local tone mapping and sharpening
 - [ ] SIMD versions of the stages (the bilateral filter is still ~86% of a frame)
@@ -352,6 +393,7 @@ minicam/
 - E. Reinhard, M. Stark, P. Shirley, J. Ferwerda. "Photographic tone reproduction for digital images." ACM Transactions on Graphics (SIGGRAPH), 2002.
 - G. Buchsbaum. "A spatial processor model for object colour perception." Journal of the Franklin Institute, 1980 (gray-world assumption).
 - N. Dalal, B. Triggs. "Histograms of Oriented Gradients for Human Detection." CVPR 2005.
+- F. Porikli. "Integral Histogram: A Fast Way to Extract Histograms in Cartesian Spaces." CVPR 2005.
 - S. W. Hasinoff et al. "Burst photography for high dynamic range and low-light imaging on mobile cameras." ACM Transactions on Graphics (SIGGRAPH Asia), 2016.
 
 ## Data and license
