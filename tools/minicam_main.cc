@@ -38,6 +38,7 @@
 #include "minicam/stages/color_correction.h"
 #include "minicam/stages/demosaic.h"
 #include "minicam/stages/denoise.h"
+#include "minicam/stages/face_detect.h"
 #include "minicam/stages/tone_map.h"
 #include "minicam/stages/white_balance.h"
 #include "minicam/threaded_pipeline.h"
@@ -59,6 +60,10 @@ options:
   --sigma-spatial S, --sigma-range R bilateral parameters (default: 2, 0.08)
   --raw-preview <png>                single file: also save the black-level
                                      corrected Bayer mosaic as grayscale
+  --detect-faces <template image>    add HOG face detection (template
+                                     matching) and draw the boxes
+  --detect-downscale N               detect on the image shrunk N times
+  --ncc-threshold T                  detection threshold (default: 0.49)
 )";
 
 struct Options {
@@ -73,6 +78,8 @@ struct Options {
   minicam::BilateralOptions bilateral;
   std::string mode = "threaded";
   std::string raw_preview;  // Single-file mode: also save the RAW mosaic.
+  std::string face_template;
+  minicam::FaceDetectionOptions faces;
 };
 
 int Fail(std::string_view message) {
@@ -132,6 +139,18 @@ minicam::Status BuildPipeline(const Options& o, PipelineT& pipeline) {
     pipeline.Add(std::make_unique<minicam::BilateralDenoiseStage>(o.bilateral));
   } else if (o.denoise != "off") {
     return InvalidArgumentError("unknown --denoise " + o.denoise);
+  }
+
+  if (!o.face_template.empty()) {
+    // The template is compared with the final, sRGB-encoded image, so it is
+    // loaded without linearization.
+    auto rgb = minicam::LoadImageAsEncodedRgb(o.face_template);
+    if (!rgb.ok()) return rgb.status();
+    minicam::Image<float> gray;
+    minicam::RgbToGray(*rgb, gray);
+    auto stage = minicam::HogFaceDetectionStage::Create(gray, o.faces);
+    if (!stage.ok()) return stage.status();
+    pipeline.Add(std::move(*stage));
   }
   return minicam::OkStatus();
 }
@@ -234,6 +253,12 @@ int RunSingle(const Options& o) {
   status = pipeline.Process(frame, &stage_ms);
   if (!status.ok()) return Fail(status.ToString());
 
+  for (const minicam::Detection& d : frame.detections) {
+    std::cout << "face at (" << d.x << ", " << d.y << ") size " << d.width
+              << "x" << d.height << ", NCC " << d.score << "\n";
+  }
+  minicam::DrawDetections(frame.detections, frame.rgb);
+
   minicam::Image<float> upright;
   status = SaveUpright(frame, o.output, upright);
   if (status.ok() && !o.raw_preview.empty()) {
@@ -295,6 +320,7 @@ int RunStream(const Options& o) {
   auto sink = [&](minicam::Frame& frame) -> minicam::Status {
     const fs::path out = fs::path(o.output) /
                          (inputs[frame.meta.frame_id].stem().string() + ".png");
+    minicam::DrawDetections(frame.detections, frame.rgb);
     return SaveUpright(frame, out.string(), upright);
   };
 
@@ -365,6 +391,18 @@ int main(int argc, char** argv) {
       o.mode = value;
     } else if (arg == "--raw-preview") {
       o.raw_preview = value;
+    } else if (arg == "--detect-faces") {
+      o.face_template = value;
+    } else if (arg == "--detect-downscale") {
+      auto [ptr, ec] = std::from_chars(
+          value.data(), value.data() + value.size(), o.faces.downscale);
+      if (ec != std::errc() || ptr != value.data() + value.size()) {
+        return Fail("bad --detect-downscale");
+      }
+    } else if (arg == "--ncc-threshold") {
+      if (!ParseFloat(value, o.faces.ncc_threshold)) {
+        return Fail("bad --ncc-threshold");
+      }
     } else if (arg == "--sigma-range") {
       if (!ParseFloat(value, o.bilateral.sigma_range)) {
         return Fail("bad --sigma-range");

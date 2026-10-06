@@ -43,6 +43,7 @@ endif()
 add_library(minicam_core
   src/core/cfa.cc
   src/core/color.cc
+  src/core/hog.cc
   src/core/metrics.cc
   src/core/status.cc
   src/io/raw_file.cc
@@ -54,6 +55,7 @@ add_library(minicam_core
   src/stages/color_correction.cc
   src/stages/demosaic.cc
   src/stages/denoise.cc
+  src/stages/face_detect.cc
   src/stages/tone_map.cc
   src/stages/white_balance.cc
 )
