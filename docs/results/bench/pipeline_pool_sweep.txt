@@ -1,0 +1,16 @@
+2026-10-06T09:18:49+09:00
+Running ./minicam_bench
+Run on (8 X 2304.01 MHz CPU s)
+CPU Caches:
+  L1 Data 32 KiB (x4)
+  L1 Instruction 32 KiB (x4)
+  L2 Unified 256 KiB (x4)
+  L3 Unified 8192 KiB (x1)
+Load Average: 1.05, 4.68, 3.52
+--------------------------------------------------------------------------------------------------------------------------------------
+Benchmark                                                                            Time             CPU   Iterations UserCounters...
+--------------------------------------------------------------------------------------------------------------------------------------
+BM_Pipeline/optimized_threaded_pool/frames:16/pool:2/iterations:1/real_time      53589 ms         48.7 ms            1 frames=16 frames/s=0.29857/s max_ms=10.3079k p50_ms=5.83835k p99_ms=10.3079k
+BM_Pipeline/optimized_threaded_pool/frames:16/pool:3/iterations:1/real_time      44956 ms         76.7 ms            1 frames=16 frames/s=0.355906/s max_ms=10.0246k p50_ms=7.49175k p99_ms=10.0246k
+BM_Pipeline/optimized_threaded_pool/frames:16/pool:4/iterations:1/real_time      42609 ms         74.2 ms            1 frames=16 frames/s=0.375507/s max_ms=11.3641k p50_ms=10.3144k p99_ms=11.3641k
+BM_Pipeline/optimized_threaded_pool/frames:16/pool:8/iterations:1/real_time      37563 ms          125 ms            1 frames=16 frames/s=0.425947/s max_ms=20.5809k p50_ms=16.9337k p99_ms=20.5809k

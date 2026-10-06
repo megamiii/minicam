@@ -1,0 +1,116 @@
+{
+  "context": {
+    "date": "2026-10-06T09:18:49+09:00",
+    "host_name": "DESKTOP-P9VER3D",
+    "executable": "./minicam_bench",
+    "num_cpus": 8,
+    "mhz_per_cpu": 2304,
+    "cpu_scaling_enabled": false,
+    "caches": [
+      {
+        "type": "Data",
+        "level": 1,
+        "size": 32768,
+        "num_sharing": 2
+      },
+      {
+        "type": "Instruction",
+        "level": 1,
+        "size": 32768,
+        "num_sharing": 2
+      },
+      {
+        "type": "Unified",
+        "level": 2,
+        "size": 262144,
+        "num_sharing": 2
+      },
+      {
+        "type": "Unified",
+        "level": 3,
+        "size": 8388608,
+        "num_sharing": 8
+      }
+    ],
+    "load_avg": [1.04883,4.68018,3.52393],
+    "library_build_type": "release"
+  },
+  "benchmarks": [
+    {
+      "name": "BM_Pipeline/optimized_threaded_pool/frames:16/pool:2/iterations:1/real_time",
+      "family_index": 0,
+      "per_family_instance_index": 0,
+      "run_name": "BM_Pipeline/optimized_threaded_pool/frames:16/pool:2/iterations:1/real_time",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 1,
+      "real_time": 5.3588710977999654e+04,
+      "cpu_time": 4.8719900000000038e+01,
+      "time_unit": "ms",
+      "frames": 1.6000000000000000e+01,
+      "frames/s": 2.9857034640315666e-01,
+      "max_ms": 1.0307872703999999e+04,
+      "p50_ms": 5.8383477659999999e+03,
+      "p99_ms": 1.0307872703999999e+04
+    },
+    {
+      "name": "BM_Pipeline/optimized_threaded_pool/frames:16/pool:3/iterations:1/real_time",
+      "family_index": 0,
+      "per_family_instance_index": 1,
+      "run_name": "BM_Pipeline/optimized_threaded_pool/frames:16/pool:3/iterations:1/real_time",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 1,
+      "real_time": 4.4955641402999390e+04,
+      "cpu_time": 7.6717699999999894e+01,
+      "time_unit": "ms",
+      "frames": 1.6000000000000000e+01,
+      "frames/s": 3.5590638906850292e-01,
+      "max_ms": 1.0024566452999999e+04,
+      "p50_ms": 7.4917539889999998e+03,
+      "p99_ms": 1.0024566452999999e+04
+    },
+    {
+      "name": "BM_Pipeline/optimized_threaded_pool/frames:16/pool:4/iterations:1/real_time",
+      "family_index": 0,
+      "per_family_instance_index": 2,
+      "run_name": "BM_Pipeline/optimized_threaded_pool/frames:16/pool:4/iterations:1/real_time",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 1,
+      "real_time": 4.2609066192999308e+04,
+      "cpu_time": 7.4196099999999987e+01,
+      "time_unit": "ms",
+      "frames": 1.6000000000000000e+01,
+      "frames/s": 3.7550693853574307e-01,
+      "max_ms": 1.1364069845000000e+04,
+      "p50_ms": 1.0314390941000000e+04,
+      "p99_ms": 1.1364069845000000e+04
+    },
+    {
+      "name": "BM_Pipeline/optimized_threaded_pool/frames:16/pool:8/iterations:1/real_time",
+      "family_index": 0,
+      "per_family_instance_index": 3,
+      "run_name": "BM_Pipeline/optimized_threaded_pool/frames:16/pool:8/iterations:1/real_time",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 1,
+      "real_time": 3.7563366424001288e+04,
+      "cpu_time": 1.2531800000000004e+02,
+      "time_unit": "ms",
+      "frames": 1.6000000000000000e+01,
+      "frames/s": 4.2594691379356048e-01,
+      "max_ms": 2.0580884296000000e+04,
+      "p50_ms": 1.6933702362000000e+04,
+      "p99_ms": 2.0580884296000000e+04
+    }
+  ]
+}

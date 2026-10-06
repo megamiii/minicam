@@ -10,7 +10,7 @@ It is tested on real RAW bursts from the [Google HDR+ Burst Photography Dataset]
 
 *Left: the black-level-corrected Bayer mosaic of one frame from the HDR+ dataset (burst `0006_20160722_115157_431`, frame 0), shown as grayscale: one color sample per pixel. Right: minicam's output with the default pipeline (Malvar demosaicing, gray-world AWB, the burst's `rgb2rgb.txt` color matrix, Reinhard tone mapping, bilateral denoising). Image from the HDR+ dataset, CC BY-SA 4.0.*
 
-> **Status:** work in progress. Milestones 1–4 are done: all six ISP stages, a single-threaded and a thread-per-stage pipeline with bounded queues and a frame buffer pool, real DNG input from the HDR+ dataset via LibRaw, unit tests that pass under AddressSanitizer and ThreadSanitizer, and Kodak demosaicing results. Benchmarks, optimization and CI come next. See [Progress](#progress).
+> **Status:** work in progress. Milestones 1–5 are done: all six ISP stages, a single-threaded and a thread-per-stage pipeline with bounded queues and a frame buffer pool, real DNG input from the HDR+ dataset via LibRaw, Kodak demosaicing results, and benchmarked, profiled optimizations (5.3× pipeline throughput). CI, clang-tidy and HOG face detection come next. See [Progress](#progress).
 
 ## Features
 
@@ -59,7 +59,8 @@ The single-threaded `Pipeline` runs the same `Stage` objects one after another o
   - Throughput is limited by the *slowest* stage instead of the sum of all stages.
   - Frame order is preserved for free, because each stage is a single thread reading a FIFO queue. A thread pool, where any worker takes any frame, would need a reorder step at the end.
   - Each `Stage` object is only ever touched by one thread, so stages can keep scratch buffers without locks.
-  - The trade-off: per-stage threads do not reduce the *latency* of a single frame, and a stage that dominates the run time (here the bilateral filter) caps the gain. Splitting one stage's image into tiles processed by several threads does reduce latency. The two approaches combine: tiling the slowest stage is planned in the Performance milestone.
+  - The trade-off: per-stage threads do not reduce the *latency* of a single frame, and a stage that dominates the run time (here the bilateral filter) caps the gain. Splitting one stage's image into bands processed by several threads does reduce latency. The two combine, and the measurements in [Performance](#performance) show both effects: with one thread inside each stage the pipeline runs at exactly the speed of its slowest stage, and row bands inside the heavy stages raised that limit.
+  - Inside a stage, `ParallelFor` splits the rows into one band per hardware thread. Each band writes only its own output rows, so no locks are needed. Threads are created per call (tens of microseconds, negligible against stages that take tens of milliseconds); a persistent thread pool would only matter for much smaller work items.
 - **Bounded queues:** each queue has a small fixed capacity (2 by default).
   - When a downstream stage is slow, its input queue fills, and `Push` blocks the stage before it. That pressure propagates back to the source, so the pipeline settles at the speed of its slowest stage instead of piling up frames, memory and latency (back-pressure).
   - Implemented as a monitor: one mutex, two condition variables (`not_full`, `not_empty`) waited on with predicates to handle spurious wake-ups, and a ring buffer allocated once.
@@ -144,19 +145,59 @@ Measured so far on the procedural test scene used in the unit tests (256×192, 1
 
 ## Performance
 
-Measured with Google Benchmark on _TODO: CPU, cores, RAM, OS, compiler_. Image size: _TODO_.
+Measured with Google Benchmark (v1.8.3) on an **Intel Core i7-10510U** laptop CPU (4 cores / 8 threads, 1.8 GHz base, up to 4.9 GHz turbo, 8 MB L3), 7.7 GiB of RAM available to **WSL2 (Ubuntu 22.04)**, **GCC 11.4, `-O3`**. Image size **4048×3036 (12.3 MP)**, the HDR+ sensor size; inputs are synthetic so the benchmark needs no dataset.
 
-| Stage | Before optimization | After optimization | Change | Optimization |
+**How the numbers were taken.** This laptop's turbo clock depends on temperature: the same code measured 13.6 s after a cool-down and 21.3 s right after other long runs. So every before/after pair below comes from **one run, after a 60 s cool-down, with the variants interleaved**, as the median of 3 repetitions. Numbers from different runs are not compared with each other. Raw outputs are in [`docs/results/bench/`](docs/results/bench/).
+
+### Stage optimizations
+
+| Stage | Before | After, 1 thread | After, 8 threads | Change | Optimization |
+|---|---|---|---|---|---|
+| Bilateral denoise | 13,617 ms | 7,184 ms | **2,591 ms** | **5.26×** | Range weight from a 4097-entry lookup table instead of `exp()`; row bands on all hardware threads |
+| Tone mapping | 983 ms | 417 ms | **161 ms** | **6.1×** | sRGB encoding from an interpolated lookup table instead of `powf`; single-precision log; row bands on all threads |
+| Malvar demosaic | 301 ms | 132 ms | **55.3 ms** | **5.4×** | Border mirroring only on the 2-pixel edge, interior reads through row pointers; row bands on all threads |
+
+- **Accuracy is checked by tests against the original code, which is kept as `kReference`.** The bilateral table is within 2.0×10⁻⁵ of `exp()` (110.7 dB). The sRGB table's maximum error is 1.6×10⁻⁵ (about 0.4% of an 8-bit step). The Malvar fast path is bit-identical. All three give bit-identical results for any thread count; tone mapping needed a fixed summation order (per-row sums added in order) for that.
+- **Why 8 threads give about 3× over 1 thread, not 8×:** the CPU has 4 physical cores (the other 4 threads are hyper-threads sharing execution units), and its turbo clock drops when all cores are busy.
+
+### Pipeline: sequential vs threaded
+
+Full ISP (black level, Malvar, gray-world AWB, CCM, Reinhard, bilateral), frames streamed from a source that never waits. One run (`bench/pipeline.txt`), 16 frames per configuration, plus 100 frames for the final configuration.
+
+| Pipeline | Stages | Throughput (FPS) | Latency p50 | Latency p99 |
 |---|---|---|---|---|
-| _TODO_ | _ms/frame_ | _ms/frame_ | _x faster_ | _e.g., cache-friendly layout_ |
-| _TODO_ | _ms/frame_ | _ms/frame_ | _x faster_ | _e.g., tiled multithreading, SIMD_ |
+| Single-threaded | original code | 0.065 | 14.9 s | 20.4 s ¹ |
+| Single-threaded | optimized (row bands inside stages) | 0.235 | 3.6 s | 7.6 s ¹ |
+| Multi-threaded (thread per stage) | original code | 0.070 | 109 s ² | 119 s ¹ ² |
+| Multi-threaded (thread per stage) | optimized, 1 thread inside each stage | 0.147 | 48.8 s ² | 54.3 s ¹ ² |
+| Multi-threaded (thread per stage) | optimized, row bands inside stages | 0.327 | 22.4 s ² | 24.9 s ¹ ² |
+| Multi-threaded, 100 frames | optimized, row bands inside stages | **0.342** | 23.3 s ² | 26.9 s ² |
 
-| Pipeline | Throughput (FPS) | Latency p50 | Latency p99 |
+¹ With 16 frames, p99 is the slowest frame.
+² Dominated by queueing, see below.
+
+**What this shows:**
+- **Throughput:** 0.065 → 0.342 FPS, **5.3× overall**. The stage optimizations give 3.6× on their own. Adding the thread-per-stage pipeline on top adds about 1.4×: it overlaps the cheap stages with the bilateral filter, but cannot go faster than that slowest stage.
+- **The slowest stage sets the pace.** With one thread inside each stage, the threaded pipeline runs at 0.147 FPS, almost exactly 1 / 7.2 s, the single-threaded bilateral time. A thread per stage speeds up a pipeline only as far as its slowest stage allows; splitting that one stage across cores (row bands) is what raised the limit.
+- **Latency follows Little's law.** The benchmark's source never waits, so it fills the whole frame pool (8 frames by default), and every frame queues in front of the bilateral stage. Little's law, L = λ·W, predicts a wait of W = L/λ = 8 / 0.342 ≈ 23 s, which is what was measured. This is a property of the setup, not slow processing: a real camera drops frames when the ISP falls behind instead of queueing them, and the single-frame processing time is the 3.6 s of the optimized sequential row.
+
+**The pool size trades latency for throughput.** Optimized threaded pipeline, 16 frames, one separate run (`bench/pipeline_pool_sweep.txt`):
+
+| Frame pool (max frames in flight) | Throughput (FPS) | Latency p50 | Slowest frame |
 |---|---|---|---|
-| Single-threaded | _TODO_ | _TODO_ | _TODO_ |
-| Multi-threaded | _TODO_ | _TODO_ | _TODO_ |
+| 2 | 0.299 | 5.8 s | 10.3 s |
+| 3 | 0.356 | 7.5 s | 10.0 s |
+| 4 | 0.376 | 10.3 s | 11.4 s |
+| 8 (default) | 0.426 | 16.9 s | 20.6 s |
 
-**Profiling notes:** _TODO: what perf showed and what you changed because of it._
+More frames in flight keep more stages busy, so throughput rises, but each frame waits longer. A camera preview would pick a small pool, for low latency; a burst capture would pick a larger one, for throughput. (The pool-8 row measured 0.426 FPS here against 0.342 in the run above; that is the run-to-run thermal variation described at the top, which is why rows are only compared within one run.)
+
+### Profiling notes
+
+Profiled with `perf record` / `perf stat` on a `-O3 -g -fno-omit-frame-pointer` build (details and numbers in [docs/results/profiling.md](docs/results/profiling.md)):
+- **Bilateral:** `expf` took about 40% of the stage, one call per neighbor, about 1 billion per frame. IPC was 2.1 with 0.4% branch misses on a single busy core, so it was compute-bound, not memory-bound. That pointed to removing `exp` (lookup table) and using more cores (row bands).
+- **Tone mapping:** `powf` from the sRGB encoding took about 60% of the stage. The profile also showed *double*-precision `log` calls: a `double` constant had silently promoted every log in the log-average. Fixed with a lookup table and `float` math.
+- **After the changes,** the bilateral filter is still about 86% of a frame (2.6 s of about 3.0 s at 8 threads), so it remains the next target. Options are SIMD across pixels (it needs a planar layout to vectorize well) or a cheaper approximation such as a bilateral grid. In the optimized tone mapper the serial `nth_element` (white-point percentile) is about 9% of the single-threaded time, the next serial bottleneck as thread counts grow.
 
 ## Getting started
 
@@ -240,7 +281,8 @@ Comparison images like the ones in [Results](#results) are made with `side_by_si
 
 ```bash
 ctest --test-dir build --output-on-failure
-./build/minicam_bench   # planned
+./build/minicam_bench --benchmark_filter=BM_Stage --benchmark_repetitions=3 --benchmark_report_aggregates_only=true
+./build/minicam_bench --benchmark_filter=BM_Pipeline   # long: streams 16-100 full-size frames per configuration
 
 # Sanitizer builds
 cmake -B build-asan -DCMAKE_BUILD_TYPE=Debug -DMINICAM_SANITIZER=address && cmake --build build-asan -j
@@ -262,12 +304,12 @@ setarch "$(uname -m)" -R ctest --test-dir build-tsan --output-on-failure
 
 ## Project structure
 
-<!-- TODO: update as bench/ and CI are added -->
+<!-- TODO: update when CI is added -->
 
 ```
 minicam/
 ├── include/minicam/      # Public headers: Status, Image, Frame, Stage, Pipeline, ThreadedPipeline,
-│                         #   BoundedQueue, FramePool, CFA, color, metrics
+│                         #   BoundedQueue, FramePool, ParallelFor, CFA, color, metrics
 │   ├── stages/           # Black level, demosaic, white balance, CCM, tone map, denoise
 │   └── io/               # DNG reader, RAW container, synthetic RAW, image file I/O
 ├── src/
@@ -277,9 +319,9 @@ minicam/
 │   └── io/               # LibRaw DNG reader, .raw reader/writer, synthetic RAW, OpenCV file I/O
 ├── tools/                # minicam CLI, make_synthetic_raw, demosaic_eval, side_by_side
 ├── tests/                # GoogleTest unit tests and procedural test scenes
-├── bench/                # (planned) Google Benchmark performance tests
+├── bench/                # Google Benchmark: per-stage and full-pipeline benchmarks
 ├── scripts/              # Dataset downloads (HDR+, Kodak)
-└── docs/                 # README images and generated result tables
+└── docs/                 # README images, result tables, benchmark outputs, profiling notes
 ```
 
 `minicam_core` (stages, pipeline, synthetic RAW) has no OpenCV dependency. OpenCV is linked only into `minicam_io`, which decodes and encodes image files.
@@ -291,7 +333,7 @@ minicam/
   - [x] Kodak demosaicing results: Malvar +5.54 dB over bilinear (sRGB domain)
 - [x] **Milestone 3:** camera-HAL-style system: `BoundedQueue` (back-pressure, close/drain), `FramePool` (RAII handles, bounded memory), `ThreadedPipeline` (thread per stage, ordered output, clean shutdown, first-error propagation, cancel), CLI stream mode; 101 unit tests, clean under ASan + UBSan and TSan (threading tests also repeated 50× under TSan)
 - [x] **Milestone 4:** `download_hdrplus.sh` (gsutil, HTTPS fallback), LibRaw `DngReader` (CFA, per-tile black levels, white level, as-shot WB, color matrix, exposure, orientation), HDR+ `rgb2rgb.txt` sidecar matrices, DNG bursts in stream mode, upright output, before/after images and a comparison with Google's HDR+ result; 111 unit tests (DNG tests skip when the dataset is absent)
-- [ ] **Milestone 5:** benchmarks, optimizations, profiling
+- [x] **Milestone 5:** Google Benchmark harness (per stage and full pipeline: FPS, p50/p99 latency), `perf` profiling, three measured optimizations (bilateral 5.26×, tone mapping 6.1×, Malvar 5.4×; reference implementations kept and tested against), sequential vs threaded pipeline and a pool-size latency/throughput sweep; 117 unit tests
 - [ ] **Milestone 6:** CI, sanitizers in CI, clang-tidy, HOG face detection
 
 ## Roadmap
@@ -299,7 +341,8 @@ minicam/
 - [ ] Burst merging (align and merge several frames, in the spirit of HDR+)
 - [ ] Lens shading correction (the HDR+ bursts include per-frame gain maps)
 - [ ] Local tone mapping and sharpening
-- [ ] SIMD versions of more stages
+- [ ] SIMD versions of the stages (the bilateral filter is still ~86% of a frame)
+- [ ] Persistent thread pool shared by all stages
 - [ ] Android version using the Camera2 `RAW_SENSOR` format
 
 ## References

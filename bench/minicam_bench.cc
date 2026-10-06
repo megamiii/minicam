@@ -79,14 +79,38 @@ const Frame& RawFrame() {
   return *frame;
 }
 
-std::vector<std::unique_ptr<Stage>> MakeIspStages() {
+// Which stage implementations a pipeline benchmark uses.
+enum class Variant {
+  kReference,          // Pre-optimization code, one thread inside each stage.
+  kOptimized1Thread,   // Optimized code, one thread inside each stage.
+  kOptimized,          // Optimized code, row bands on all hardware threads.
+};
+
+std::vector<std::unique_ptr<Stage>> MakeIspStages(
+    Variant variant = Variant::kOptimized) {
+  const bool reference = variant == Variant::kReference;
+  const int threads = variant == Variant::kOptimized ? 0 : 1;
+  MalvarOptions malvar;
+  malvar.implementation = reference ? MalvarOptions::Implementation::kReference
+                                    : MalvarOptions::Implementation::kFast;
+  malvar.num_threads = threads;
+  ToneMapOptions tone;
+  tone.implementation = reference ? ToneMapOptions::Implementation::kReference
+                                  : ToneMapOptions::Implementation::kFast;
+  tone.num_threads = threads;
+  BilateralOptions bilateral;
+  bilateral.implementation =
+      reference ? BilateralOptions::Implementation::kReference
+                : BilateralOptions::Implementation::kLookupTable;
+  bilateral.num_threads = threads;
+
   std::vector<std::unique_ptr<Stage>> stages;
   stages.push_back(std::make_unique<BlackLevelStage>());
-  stages.push_back(std::make_unique<MalvarDemosaicStage>());
+  stages.push_back(std::make_unique<MalvarDemosaicStage>(malvar));
   stages.push_back(std::make_unique<WhiteBalanceStage>());
   stages.push_back(std::make_unique<ColorCorrectionStage>());
-  stages.push_back(std::make_unique<ToneMapStage>());
-  stages.push_back(std::make_unique<BilateralDenoiseStage>());
+  stages.push_back(std::make_unique<ToneMapStage>(tone));
+  stages.push_back(std::make_unique<BilateralDenoiseStage>(bilateral));
   return stages;
 }
 
@@ -235,8 +259,11 @@ int64_t NowNs() {
 
 // Streams `num_frames` frames through the full ISP. The source copies a
 // prepared RAW frame (standing in for the sensor), the sink records latency.
-void BM_Pipeline(benchmark::State& state, bool threaded) {
+void BM_Pipeline(benchmark::State& state, bool threaded, Variant variant) {
   const int num_frames = static_cast<int>(state.range(0));
+  // Optional second argument: frame pool size (0 = default, stages + 2).
+  const size_t pool_size =
+      state.range(1) > 0 ? static_cast<size_t>(state.range(1)) : 0;
   const Frame& raw = RawFrame();
   std::vector<double> latencies_ms;
   double total_frames = 0.0;
@@ -260,12 +287,14 @@ void BM_Pipeline(benchmark::State& state, bool threaded) {
 
     Status status;
     if (threaded) {
-      ThreadedPipeline pipeline;
-      for (auto& stage : MakeIspStages()) pipeline.Add(std::move(stage));
+      ThreadedPipelineOptions options;
+      options.pool_size = pool_size;
+      ThreadedPipeline pipeline(options);
+      for (auto& stage : MakeIspStages(variant)) pipeline.Add(std::move(stage));
       status = pipeline.Run(source, sink);
     } else {
       Pipeline pipeline;
-      for (auto& stage : MakeIspStages()) pipeline.Add(std::move(stage));
+      for (auto& stage : MakeIspStages(variant)) pipeline.Add(std::move(stage));
       Frame frame;
       while (status.ok()) {
         frame.meta = FrameMetadata{};
@@ -286,15 +315,49 @@ void BM_Pipeline(benchmark::State& state, bool threaded) {
       benchmark::Counter(total_frames, benchmark::Counter::kIsRate);
   state.counters["p50_ms"] = Percentile(latencies_ms, 0.50);
   state.counters["p99_ms"] = Percentile(latencies_ms, 0.99);
+  state.counters["max_ms"] = Percentile(latencies_ms, 1.0);
+  state.counters["frames"] = static_cast<double>(latencies_ms.size());
 }
 
-BENCHMARK_CAPTURE(BM_Pipeline, sequential, false)
-    ->Arg(8)
+// The argument is the number of frames; one iteration streams all of them.
+// Pass a larger count with --benchmark_filter and a custom run if needed; see
+// the README for the configurations used.
+BENCHMARK_CAPTURE(BM_Pipeline, reference_sequential, false,
+                  Variant::kReference)
+    ->Args({16, 0})
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime()
     ->Iterations(1);
-BENCHMARK_CAPTURE(BM_Pipeline, threaded, true)
-    ->Arg(8)
+BENCHMARK_CAPTURE(BM_Pipeline, reference_threaded, true, Variant::kReference)
+    ->Args({16, 0})
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime()
+    ->Iterations(1);
+BENCHMARK_CAPTURE(BM_Pipeline, optimized_sequential, false,
+                  Variant::kOptimized)
+    ->Args({16, 0})
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime()
+    ->Iterations(1);
+BENCHMARK_CAPTURE(BM_Pipeline, optimized_1thread_threaded, true,
+                  Variant::kOptimized1Thread)
+    ->Args({16, 0})
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime()
+    ->Iterations(1);
+BENCHMARK_CAPTURE(BM_Pipeline, optimized_threaded, true, Variant::kOptimized)
+    ->Args({16, 0})
+    ->Args({100, 0})
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime()
+    ->Iterations(1);
+
+// Frame pool size trades latency for throughput: with an unthrottled source
+// the pool fills, and by Little's law latency = frames in flight / throughput.
+BENCHMARK_CAPTURE(BM_Pipeline, optimized_threaded_pool, true,
+                  Variant::kOptimized)
+    ->ArgsProduct({{16}, {2, 3, 4, 8}})
+    ->ArgNames({"frames", "pool"})
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime()
     ->Iterations(1);
